@@ -90,3 +90,25 @@ workers:
   plugins: []
   pluginToolsets: []
   mcpServers: []
+- id: builder
+  name: Builder
+  role: Implementation / code + tooling executor
+  specialty: writing and fixing code, scripts, and VPS tooling from kanban tasks; TDD; verification-first
+  model: claude-fable-5
+  mission: Implement dispatched build/fix tasks with tests run before and after; verify externally before claiming done; VPS-only scope — never touches Mac canonical, SEHA DCC, or UMF governance files; works on vps-prod branch in hermes-workspace.
+  profile: builder
+  modes: [task]
+  tools: [terminal, file, web, browser, session_search, skills, todo]
+  skills:
+  - working-with-muhammad
+  - test-driven-development
+  - systematic-debugging
+  - requesting-code-review
+  capabilities: [implementation, coding, scripting, debugging, testing]
+  preferredTaskTypes: [build, fix, implement, refactor, script]
+  greenlightRequiredFor: [merge, publish, destructive, external-send, credential-change, new-dependency]
+  maxConcurrentTasks: 1
+  acceptsBroadcast: true
+  plugins: []
+  pluginToolsets: []
+  mcpServers: []

@@ -1,30 +1,28 @@
 # Hermes Workspace Agent Contract
 
-This workspace uses semantic Hermes swarm workers, not numbered-only lanes. The source of truth for routing is `swarm.yaml`; each worker also has a matching profile under `~/.hermes/profiles/<worker-id>/`, a role skill `<worker-id>-core`, and a wrapper in `~/.local/bin/`.
+This workspace uses semantic Hermes swarm workers, not numbered-only lanes. The source of truth for routing is `swarm.yaml`; each worker has a matching profile under `~/.hermes/profiles/<worker-id>/` and a wrapper in `~/.local/bin/<worker-id>`.
 
-## Current semantic roster
+## Current semantic roster (Muhammad's VPS — actual, 2026-07-06)
 
-| Worker | Wrapper | Tools | Skills | MCP | Plugins |
-|---|---|---|---|---|---|
-| `orchestrator` | `orchestrator:plan` | todo, kanban, delegation, terminal, file, gbrain, session_search, cronjob, skills, clarify, web | orchestrator-core, gstack-for-hermes, gbrain, kanban-orchestrator, subagent-driven-development, writing-plans, requesting-code-review, workspace-dispatch | gbrain | none |
-| `km-agent` | `km:health` | gbrain, file, terminal, session_search, skills, todo, cronjob, web | km-agent-core, gbrain, obsidian-markdown, obsidian-cli, obsidian-bases, json-canvas, gstack-for-hermes | gbrain | none |
-| `builder` | `builder:task` | terminal, file, browser, web, gbrain, session_search, skills, todo | builder-core, gstack-for-hermes, test-driven-development, systematic-debugging, github-pr-workflow, requesting-code-review, codebase-inspection | gbrain | none |
-| `reviewer` | `reviewer:gate` | terminal, file, web, gbrain, session_search, skills | reviewer-core, requesting-code-review, github-code-review, systematic-debugging, gstack-for-hermes, gbrain, codebase-inspection | gbrain | none |
-| `qa` | `qa:smoke` | browser, terminal, file, vision, gbrain, session_search, skills, web | qa-core, browser-harness-power-use, dogfood, gstack-for-hermes | gbrain | none |
-| `researcher` | `researcher:quick` | gbrain, web, browser, terminal, file, vision, session_search, skills, todo | researcher-core, gbrain, autoresearch, browser-harness-power-use, gstack-for-hermes, researcher-quick, researcher-autoresearch, arxiv, youtube-content, polymarket | gbrain | none |
-| `ops-watch` | `ops:health` | terminal, cronjob, file, gbrain, skills, session_search, web | ops-watch-core, gbrain, hermes-agent, systematic-debugging, webhook-subscriptions | gbrain | none |
-| `maintainer` | `maintainer:check` | terminal, file, web, browser, gbrain, session_search, skills | maintainer-core, github-repo-management, github-pr-workflow, github-issues, github-code-review, gbrain, gstack-for-hermes, hermes-agent | gbrain | none |
-| `strategist` | `strategist:review` | gbrain, web, session_search, file, skills, todo, clarify | strategist-core, gstack-for-hermes, gbrain, writing-plans, polymarket | gbrain | none |
-| `inbox-triage` | `inbox:triage` | gbrain, web, file, session_search, todo, skills, terminal | inbox-triage-core, gbrain, obsidian-markdown, gstack-for-hermes, defuddle, youtube-content | gbrain | none |
+Upstream's 10-worker example roster is preserved in `swarm.yaml.upstream-example` for reference. It is NOT this install's roster — do not dispatch to workers from that table (builder:task-style wrappers, km-agent, reviewer, qa, maintainer, strategist, inbox-triage do not exist here).
+
+| Worker | Wrapper | Role | Tools | Key skills |
+|---|---|---|---|---|
+| `orchestrator` | `orchestrator` | Mission routing / decomposition / greenlight gate | todo, kanban, delegation, terminal, file, session_search, cronjob, skills, clarify, web | working-with-muhammad, kanban-orchestrator, subagent-driven-development, plan |
+| `researcher` | `researcher` | Research / OSINT (archived+cached) / synthesis | web, browser, terminal, file, vision, session_search, skills, todo | working-with-muhammad, osint-archive-research, people-investigation, arxiv |
+| `ops-watch` | `ops-watch` | VPS infra / runtime health | terminal, cronjob, file, skills, session_search, web | working-with-muhammad, hermes-agent, systematic-debugging, hermes-doctor-triage |
+| `librarian` | `librarian` | Knowledge steward (Obsidian vault + llm-wiki) | file, terminal, session_search, skills, todo, web | working-with-muhammad, obsidian, llm-wiki |
+| `builder` | `builder` | Implementation / code + tooling executor | terminal, file, web, browser, session_search, skills, todo | working-with-muhammad, test-driven-development, systematic-debugging, requesting-code-review |
 
 ## Operating rules
 
-- Keep `swarm.yaml`, profile `config.yaml`, profile core skills, and wrappers aligned when changing a worker.
-- Prefer GBrain-first lookup for context-sensitive RAZSOC/Hermes/workflow decisions.
-- Builder implements; Reviewer gates; QA verifies behavior; Orchestrator routes and enforces greenlight.
+- Keep `swarm.yaml`, profile `config.yaml`, profile SOUL.md, and wrappers aligned when changing a worker.
+- Orchestrator routes and enforces greenlight; Builder implements; Researcher researches; Ops-watch monitors; Librarian curates knowledge.
+- Git discipline in this repo: production branch is `vps-prod` (local commits on top of upstream `main`). NEVER `git pull`/`reset`/`checkout main` without checking local commits first. Upstream merges are deliberate rebases onto `vps-prod`.
+- The running service is systemd `hermes-workspace.service` (127.0.0.1:3300, tailscale serve :3443). `dist/BUILD_COMMIT` records which commit the deployed build came from.
+- Mac vs VPS: Mac is source+render authority for SEHA/UMF/personal canonical files. VPS workers never modify those. VPS-granted exceptions: /root/Obsidian-Vault, /root/llm-wiki.
 - Do not enable optional Hermes plugins globally unless the task explicitly needs them; record plugin/toolset alignment in `swarm.yaml` first.
-- For local Workspace pairing/debugging, treat **one gateway + one dashboard** as canonical: `hermes gateway run` on `:8642` and `hermes dashboard` on `:9119`. Before starting another gateway, verify `curl http://127.0.0.1:3000/api/sessions` (or the active workspace port) first. If Sessions already returns data, refresh/reprobe the UI instead of spawning a duplicate gateway.
-- If the default model is `gpt-5.4` / `openai-codex`, remember that chat depends on a live local Codex CLI login (`codex login`).
+- Greenlight required (all workers): merge, publish, destructive ops, external sends, credential changes, new dependencies.
 
 ## Windows-specific notes (2026-06-01)
 
