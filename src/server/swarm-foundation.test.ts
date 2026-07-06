@@ -1,3 +1,6 @@
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildSwarmDispatchMetadata,
@@ -6,15 +9,21 @@ import {
   deriveSwarmBoundary,
   getSwarmWrapperPath,
   normalizeSwarmRuntime,
-  parseSwarmPluginManifest,
+  parseSwarmPluginManifest, patchSwarmRuntimeFile, readSwarmRuntimeFile 
 } from './swarm-foundation'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
+import { readSwarmRoster } from './swarm-roster'
+
 
 describe('normalizeSwarmRuntime', () => {
   it('resolves semantic wrapper aliases from the roster', () => {
-    expect(getSwarmWrapperPath('builder')).toMatch(/\/builder:task$/)
+    // Derive the fixture from the live roster instead of hardcoding worker
+    // ids — rosters are user-configured and vary per install.
+    const aliased = readSwarmRoster().workers.find((w) => w.wrapper?.trim())
+    if (aliased) {
+      const wrapper = aliased.wrapper!.trim()
+      expect(getSwarmWrapperPath(aliased.id).endsWith(`${path.sep}${wrapper}`)).toBe(true)
+    }
+    // Unknown ids always fall back to the id itself.
     expect(getSwarmWrapperPath('swarm5')).toMatch(/\/swarm5$/)
   })
 
@@ -161,8 +170,6 @@ describe('parseSwarmPluginManifest', () => {
     }
   })
 })
-
-import { patchSwarmRuntimeFile, readSwarmRuntimeFile } from './swarm-foundation'
 
 describe('patchSwarmRuntimeFile', () => {
   it('returns ok=false when the profile path does not exist', () => {
