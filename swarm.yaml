@@ -51,7 +51,7 @@ workers:
   name: Ops Watch
   role: VPS infra / runtime health
   specialty: gateway health, systemd services, docker exposure, cron, backups, tailscale serve
-  model: claude-fable-5
+  model: grok-4.3
   mission: Keep gateway, workspace, docker services, cron, and backups observable and healthy with quiet low-risk checks; docker must publish on 127.0.0.1 only.
   profile: ops-watch
   modes: [health]
@@ -73,7 +73,7 @@ workers:
   name: Librarian
   role: Knowledge steward (Obsidian vault + llm-wiki)
   specialty: /root/Obsidian-Vault and /root/llm-wiki curation, durable knowledge capture, link hygiene
-  model: claude-fable-5
+  model: grok-4.3
   mission: Keep the VPS Obsidian vault and llm-wiki coherent, searchable, and current without polluting durable knowledge. VPS-side only — never touches Mac canonical files.
   profile: librarian
   modes: [curate]
