@@ -438,6 +438,11 @@ const config = defineConfig(({ mode, command }) => {
         '**/dist/**',
         '**/skills-bundle/**',
         '**/.{idea,git,cache,output,temp}/**',
+        // Playwright browser specs — written for the @playwright/test runner
+        // (not installed) against a live dev server. Vitest can neither
+        // resolve their imports nor drive a browser, so keep them out of the
+        // unit-test suite.
+        'e2e/**',
       ],
       // Force vitest to run React through its own transform pipeline so ESM
       // `import` and CJS `require('react')` share a single module instance.
