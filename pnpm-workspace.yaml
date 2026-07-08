@@ -5,3 +5,5 @@ allowBuilds:
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - "@iconify/utils"
+overrides:
+  "undici@>=7.0.0 <7.28.0": ">=7.28.0"
