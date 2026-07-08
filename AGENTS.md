@@ -18,7 +18,8 @@ Upstream's 10-worker example roster is preserved in `swarm.yaml.upstream-example
 
 - Keep `swarm.yaml`, profile `config.yaml`, profile SOUL.md, and wrappers aligned when changing a worker.
 - Orchestrator routes and enforces greenlight; Builder implements; Researcher researches; Ops-watch monitors; Librarian curates knowledge.
-- Git discipline in this repo: production branch is `vps-prod` (local commits on top of upstream `main`). NEVER `git pull`/`reset`/`checkout main` without checking local commits first. Upstream merges are deliberate rebases onto `vps-prod`.
+- Git discipline in this repo: production branch is `vps-prod` (local commits on top of upstream `main`). NEVER `git pull`/`reset`/`checkout main` without checking local commits first. Upstream merges are deliberate rebases onto `vps-prod`. Safety nets (2026-07-08): `pull.ff=only`, `remote.pushDefault=fork`, a `pre-rebase` hook snapshots `backup/vps-prod-<ts>` before any rebase, and `vps-prod` is pushed to the fork (mojoho81/hermes-workspace) — push after every local commit.
+- Runtime state is NOT in the repo (2026-07-08): `.runtime` and `memory/handoffs` are symlinks into `/root/hermes-runtime/` (covered by nightly backups). `git clean -fdx` no longer destroys live swarm state, but never delete the symlinks themselves.
 - The running service is systemd `hermes-workspace.service` (127.0.0.1:3300, tailscale serve :3443). `dist/BUILD_COMMIT` records which commit the deployed build came from.
 - Mac vs VPS: Mac is source+render authority for SEHA/UMF/personal canonical files. VPS workers never modify those. VPS-granted exceptions: /root/Obsidian-Vault, /root/llm-wiki.
 - Do not enable optional Hermes plugins globally unless the task explicitly needs them; record plugin/toolset alignment in `swarm.yaml` first.
