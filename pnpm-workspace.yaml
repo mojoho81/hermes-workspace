@@ -7,3 +7,7 @@ minimumReleaseAgeExclude:
   - "@iconify/utils"
 overrides:
   "undici@>=7.0.0 <7.28.0": ">=7.28.0"
+  # GHSA-gvmj-g25r-r7wr (dompurify XSS) via monaco-editor@0.55.1.
+  # TEMPORARY: remove once monaco-editor ships dompurify >=3.4.8 upstream
+  # (check with: pnpm why dompurify).
+  "dompurify@<3.4.8": ">=3.4.8"
