@@ -28,7 +28,7 @@ workers:
   name: Researcher
   role: Research / OSINT / archives
   specialty: web research, OSINT (archived+cached data), synthesis with source trails
-  model: claude-fable-5
+  model: grok-4.3
   mission: Produce decision-grade research with verified sources, archive/cache coverage (Wayback, archive.today), and explicit uncertainty.
   profile: researcher
   modes: [quick, deep]
