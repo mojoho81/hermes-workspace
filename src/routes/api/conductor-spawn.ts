@@ -11,7 +11,9 @@ import { getSwarmMission, recordMissionCheckpoint  } from '../../server/swarm-mi
 import { getSwarmProfilePath } from '../../server/swarm-foundation'
 import { readWorkerMessages } from '../../server/swarm-chat-reader'
 import { newestCheckpointFromMessages } from '../../server/swarm-checkpoints'
+import { readSwarmRoster, resolveSwarmWorkerDisplayName } from '../../server/swarm-roster'
 import { checkpointFromRuntimeSnapshot, dispatchSwarmAssignments, readRuntimeCheckpointSnapshot, runtimeCheckpointSignature } from './swarm-dispatch'
+import type { SwarmRoster, SwarmRosterWorker } from '../../server/swarm-roster'
 import type { SwarmMission } from '../../server/swarm-missions'
 
 let cachedSkill: string | null = null
@@ -144,121 +146,181 @@ function clipText(value: string, max = 8000): string {
   return value.length <= max ? value : `${value.slice(0, max - 20)}\n...[truncated]`
 }
 
-export function buildNativeConductorAssignments(goal: string, options: { maxParallel: number; supervised: boolean }): Array<NativeConductorAssignment> {
-  const maxParallel = Math.min(5, Math.max(1, options.maxParallel || 1))
-  const normalizedGoal = goal.toLowerCase()
-  const wantsOps = /production|ready|harden|audit|clean|fix|bug|test|build|release|deploy|operational|runtime|gateway|tmux|service|health/.test(normalizedGoal)
-  const wantsDocs = /doc|handoff|readme|spec|plan|summary|knowledge|note/.test(normalizedGoal)
-  const assignments: Array<NativeConductorAssignment> = []
+/**
+ * Conductor lane intents. Assignments are derived from the LIVE swarm roster
+ * (swarm.yaml via readSwarmRoster) by matching each lane's intent against
+ * worker capabilities / preferredTaskTypes / role — never from hardcoded
+ * worker ids. Lanes with no matching rostered worker are skipped; every
+ * emitted workerId is guaranteed to exist in the roster.
+ */
+type ConductorLaneId = 'implementation' | 'ops' | 'review' | 'qa' | 'docs'
 
-  const pushUnique = (assignment: NativeConductorAssignment) => {
-    if (!assignments.some((existing) => existing.workerId === assignment.workerId)) assignments.push(assignment)
+type ConductorLane = {
+  id: ConductorLaneId
+  // Matched as full lowercase strings against capabilities/preferredTaskTypes
+  // and as single lowercase tokens against the role text.
+  matchTerms: ReadonlyArray<string>
+  rationale: (workerName: string) => string
+  laneLabel: (workerName: string) => string
+  briefing: string
+}
+
+const CONDUCTOR_LANES: Record<ConductorLaneId, ConductorLane> = {
+  implementation: {
+    id: 'implementation',
+    matchTerms: [
+      'implementation', 'implement', 'coding', 'code', 'code-editing', 'builder', 'build',
+      'feature', 'bugfix', 'fix', 'refactor', 'integration', 'script', 'scripting', 'tooling',
+    ],
+    rationale: (name) => `${name} owns scoped implementation and concrete progress.`,
+    laneLabel: (name) => `Lane: ${name} / primary implementation.`,
+    briefing:
+      'Find the smallest safe execution plan, make concrete progress, and produce a checkpoint. If code changes are required, keep them scoped and testable. Report files changed, tests run, and remaining risks.',
+  },
+  ops: {
+    id: 'ops',
+    matchTerms: [
+      'ops', 'ops-health', 'operations', 'infra', 'infrastructure', 'runtime',
+      'runtime-monitoring', 'monitoring', 'health', 'gateway-status', 'incident-triage',
+      'lifecycle', 'lifecycle-sweep', 'sre', 'devops', 'backups', 'cron',
+    ],
+    rationale: (name) => `${name} owns runtime health, service quality, and production blockers.`,
+    laneLabel: (name) => `Lane: ${name} / runtime quality.`,
+    briefing:
+      'Diagnose the runtime path, check service/deployment/operational risk, and make the smallest safe operational improvement with proof. Avoid destructive changes unless explicitly approved.',
+  },
+  review: {
+    id: 'review',
+    matchTerms: [
+      'review', 'reviewer', 'code-review', 'security-review', 'quality-gate',
+      'merge-gate', 'merge-readiness', 'regression-analysis', 'quality',
+    ],
+    rationale: (name) => `${name} independently checks correctness, regressions, and merge risk.`,
+    laneLabel: (name) => `Lane: ${name} / quality gate.`,
+    briefing:
+      'Review the execution path and any changes. Look for regressions, missing tests, unsafe assumptions, and production-readiness gaps. Do not make broad edits unless needed to unblock correctness.',
+  },
+  qa: {
+    id: 'qa',
+    matchTerms: [
+      'qa', 'browser-qa', 'smoke', 'smoke-verification', 'verification',
+      'cli-verification', 'evidence-capture', 'regression', 'regression-reproduction', 'browser',
+    ],
+    rationale: (name) => `${name} validates user-visible behavior with focused smoke checks.`,
+    laneLabel: (name) => `Lane: ${name} / verification.`,
+    briefing:
+      'Run or design focused verification. Prefer targeted tests/build/smoke checks. Report exact commands and results. If tests are missing, identify the minimal regression coverage needed.',
+  },
+  docs: {
+    id: 'docs',
+    matchTerms: [
+      'docs', 'doc', 'documentation', 'knowledge', 'knowledge-curation', 'curation',
+      'wiki', 'obsidian', 'handoff', 'capture', 'librarian', 'writing', 'notes',
+    ],
+    rationale: (name) => `${name} captures handoff, docs, and durable knowledge notes without leaking secrets.`,
+    laneLabel: (name) => `Lane: ${name} / handoff and knowledge hygiene.`,
+    briefing:
+      'Create a concise handoff/status note: what changed, how to operate it, verification, caveats, and next actions. Do not expose secrets.',
+  },
+}
+
+function conductorLaneMatchScore(worker: SwarmRosterWorker, terms: ReadonlyArray<string>): number {
+  const termSet = new Set(terms)
+  let score = 0
+  for (const value of [...worker.capabilities, ...worker.preferredTaskTypes]) {
+    if (termSet.has(value.trim().toLowerCase())) score += 1
   }
+  const roleTokens = new Set(worker.role.toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean))
+  for (const token of roleTokens) {
+    if (termSet.has(token)) score += 1
+  }
+  return score
+}
 
-  pushUnique({
-    workerId: wantsOps ? 'ops-watch' : 'builder',
-    rationale: wantsOps ? 'Ops Watch owns runtime health, service quality, and production blockers.' : 'Builder owns scoped implementation and concrete progress.',
+function resolveConductorLaneWorker(
+  lane: ConductorLane,
+  workers: ReadonlyArray<SwarmRosterWorker>,
+  used: ReadonlySet<string>,
+): SwarmRosterWorker | null {
+  let best: SwarmRosterWorker | null = null
+  let bestScore = 0
+  for (const worker of workers) {
+    if (used.has(worker.id)) continue
+    const score = conductorLaneMatchScore(worker, lane.matchTerms)
+    if (score > bestScore) {
+      best = worker
+      bestScore = score
+    }
+  }
+  return best
+}
+
+function buildConductorLaneAssignment(
+  lane: ConductorLane,
+  worker: SwarmRosterWorker,
+  goal: string,
+  supervised: boolean,
+): NativeConductorAssignment {
+  const name = resolveSwarmWorkerDisplayName(worker.id, worker)
+  return {
+    workerId: worker.id,
+    rationale: lane.rationale(name),
     reviewRequired: false,
     direct: true,
     task: [
       `Conductor mission: ${goal}`,
       '',
-      wantsOps ? 'Lane: Ops Watch / runtime quality.' : 'Lane: Builder / primary implementation.',
-      wantsOps
-        ? 'Diagnose the runtime path, make the smallest safe operational improvement, and return proof. Avoid destructive changes unless explicitly approved.'
-        : 'Find the smallest safe execution plan, make concrete progress, and produce a checkpoint. If code changes are required, keep them scoped and testable.',
-      options.supervised ? 'Supervised mode: stop before destructive writes or commits and report the exact approval needed.' : 'Do not ask for confirmation unless blocked; start immediately.',
+      lane.laneLabel(name),
+      lane.briefing,
+      supervised
+        ? 'Supervised mode: stop before destructive writes or commits and report the exact approval needed.'
+        : 'Do not ask for confirmation unless blocked; start immediately.',
     ].join('\n'),
-  })
+  }
+}
 
-  if (maxParallel >= 2) {
-    pushUnique({
-      workerId: wantsOps ? 'builder' : 'reviewer',
-      rationale: wantsOps
-        ? 'Builder executes implementation or patch work in parallel with runtime analysis.'
-        : 'Reviewer provides the second-lane quality gate for implementation work.',
-      reviewRequired: false,
-      direct: true,
-      task: [
-        `Conductor mission: ${goal}`,
-        '',
-        wantsOps ? 'Lane: Builder.' : 'Lane: Reviewer / quality gate.',
-        wantsOps
-          ? 'Implement or prototype the concrete fix/feature path. Avoid broad refactors. Report files changed, tests run, and remaining risks.'
-          : 'Review the execution path and any changes. Look for regressions, missing tests, unsafe assumptions, and production-readiness gaps.',
-        options.supervised ? 'Supervised mode: prepare patches but stop before destructive writes or commits if approval is needed.' : 'Proceed without asking unless blocked.',
-      ].join('\n'),
-    })
+export function buildNativeConductorAssignments(
+  goal: string,
+  options: { maxParallel: number; supervised: boolean; roster?: SwarmRoster },
+): Array<NativeConductorAssignment> {
+  const maxParallel = Math.min(5, Math.max(1, options.maxParallel || 1))
+  const roster = options.roster ?? readSwarmRoster()
+  const workers = roster.workers
+  if (workers.length === 0) return []
+
+  const normalizedGoal = goal.toLowerCase()
+  const wantsOps = /production|ready|harden|audit|clean|fix|bug|test|build|release|deploy|operational|runtime|gateway|tmux|service|health/.test(normalizedGoal)
+  const wantsDocs = /doc|handoff|readme|spec|plan|summary|knowledge|note/.test(normalizedGoal)
+
+  const laneOrder: Array<ConductorLaneId> = wantsOps
+    ? ['ops', 'implementation', 'review', 'qa']
+    : ['implementation', 'review', 'qa', 'ops']
+  if (maxParallel >= 5 || wantsDocs) laneOrder.push('docs')
+
+  const used = new Set<string>()
+  const candidates: Array<NativeConductorAssignment> = []
+  let docsAssignment: NativeConductorAssignment | null = null
+  for (const laneId of laneOrder) {
+    const lane = CONDUCTOR_LANES[laneId]
+    const worker = resolveConductorLaneWorker(lane, workers, used)
+    if (!worker) continue
+    used.add(worker.id)
+    const assignment = buildConductorLaneAssignment(lane, worker, goal, options.supervised)
+    if (laneId === 'docs') docsAssignment = assignment
+    candidates.push(assignment)
   }
 
-  if (maxParallel >= 3) {
-    pushUnique({
-      workerId: wantsOps ? 'reviewer' : 'qa',
-      rationale: wantsOps
-        ? 'Reviewer independently checks correctness, regressions, and merge risk.'
-        : 'QA validates user-visible behavior with focused smoke checks.',
-      reviewRequired: false,
-      direct: true,
-      task: [
-        `Conductor mission: ${goal}`,
-        '',
-        wantsOps ? 'Lane: Reviewer / quality gate.' : 'Lane: QA.',
-        wantsOps
-          ? 'Review the implementation plan and any changes from Ops/Builder. Look for regressions, missing tests, unsafe assumptions, and production-readiness gaps. Do not make broad edits unless needed to unblock correctness.'
-          : 'Run or design focused verification. Prefer targeted tests/build/smoke checks. Report exact commands and results. If tests are missing, identify the minimal regression coverage needed.',
-      ].join('\n'),
-    })
+  // No lane matched this roster at all: fall back to the first rostered
+  // worker rather than emitting a workerId that does not exist.
+  if (candidates.length === 0) {
+    candidates.push(buildConductorLaneAssignment(CONDUCTOR_LANES.implementation, workers[0], goal, options.supervised))
   }
 
-  if (maxParallel >= 4) {
-    pushUnique({
-      workerId: wantsOps ? 'qa' : 'ops-watch',
-      rationale: wantsOps
-        ? 'QA validates behavior with targeted tests and smoke checks.'
-        : 'Ops Watch checks runtime/service risks for implementation missions.',
-      reviewRequired: false,
-      direct: true,
-      task: [
-        `Conductor mission: ${goal}`,
-        '',
-        wantsOps ? 'Lane: QA.' : 'Lane: Ops Watch / runtime quality.',
-        wantsOps
-          ? 'Run or design focused verification. Prefer targeted tests/build/smoke checks. Report exact commands and results. If tests are missing, identify the minimal regression coverage needed.'
-          : 'Check runtime, service, deployment, and operational risk. Report only concrete blockers, verification gaps, and safe next actions.',
-      ].join('\n'),
-    })
-  }
-
-  if (maxParallel >= 5 || wantsDocs) {
-    pushUnique({
-      workerId: 'km-agent',
-      rationale: 'KM Agent captures handoff, docs, and durable knowledge notes without leaking secrets.',
-      reviewRequired: false,
-      direct: true,
-      task: [
-        `Conductor mission: ${goal}`,
-        '',
-        'Lane: KM Agent / handoff and knowledge hygiene.',
-        'Create a concise handoff/status note: what changed, how to operate it, verification, caveats, and next actions. Do not expose secrets.',
-        options.supervised ? 'Supervised mode: stop before destructive writes or commits and report the exact approval needed.' : 'Proceed without asking unless blocked.',
-      ].join('\n'),
-    })
-  }
-
-  const selected = assignments.slice(0, maxParallel)
-  if (wantsDocs && !selected.some((assignment) => assignment.workerId === 'km-agent')) {
-    selected[selected.length - 1] = {
-      workerId: 'km-agent',
-      rationale: 'KM Agent captures handoff, docs, and durable knowledge notes without leaking secrets.',
-      reviewRequired: false,
-      direct: true,
-      task: [
-        `Conductor mission: ${goal}`,
-        '',
-        'Lane: KM Agent / handoff and knowledge hygiene.',
-        'Create a concise handoff/status note: what changed, how to operate it, verification, caveats, and next actions. Do not expose secrets.',
-        options.supervised ? 'Supervised mode: stop before destructive writes or commits and report the exact approval needed.' : 'Proceed without asking unless blocked.',
-      ].join('\n'),
+  const selected = candidates.slice(0, maxParallel)
+  if (wantsDocs && docsAssignment) {
+    const docsId = docsAssignment.workerId
+    if (!selected.some((assignment) => assignment.workerId === docsId)) {
+      selected[selected.length - 1] = docsAssignment
     }
   }
 
