@@ -27,6 +27,7 @@ type ConductorSpawnBody = {
   projectsDir?: unknown
   maxParallel?: unknown
   supervised?: unknown
+  workerIds?: unknown
 }
 
 function repoRoot(): string {
@@ -66,6 +67,7 @@ function readMaxParallel(value: unknown): number {
   return Math.min(5, Math.max(1, Math.round(value)))
 }
 
+function readWorkerIds(value: unknown): string[] | undefined { if (value === undefined) return undefined; if (!Array.isArray(value)) return []; return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))] }
 function buildOrchestratorPrompt(
   goal: string,
   skill: string,
@@ -281,12 +283,13 @@ function buildConductorLaneAssignment(
 
 export function buildNativeConductorAssignments(
   goal: string,
-  options: { maxParallel: number; supervised: boolean; roster?: SwarmRoster },
+  options: { maxParallel: number; supervised: boolean; roster?: SwarmRoster; workerIds?: string[] },
 ): Array<NativeConductorAssignment> {
   const maxParallel = Math.min(5, Math.max(1, options.maxParallel || 1))
   const roster = options.roster ?? readSwarmRoster()
   const workers = roster.workers
   if (workers.length === 0) return []
+  if (options.workerIds !== undefined) { const requested = options.workerIds.map((id) => workers.find((worker) => worker.id === id)).filter((worker): worker is SwarmRosterWorker => Boolean(worker)); return requested.slice(0, maxParallel).map((worker) => buildConductorLaneAssignment(CONDUCTOR_LANES.implementation, worker, goal, options.supervised)) }
 
   const normalizedGoal = goal.toLowerCase()
   const wantsOps = /production|ready|harden|audit|clean|fix|bug|test|build|release|deploy|operational|runtime|gateway|tmux|service|health/.test(normalizedGoal)
@@ -371,10 +374,12 @@ function createNativeConductorMission(input: {
   missionName: string
   maxParallel: number
   supervised: boolean
+  workerIds?: string[]
 }) {
   const assignments = buildNativeConductorAssignments(input.goal, {
     maxParallel: input.maxParallel,
     supervised: input.supervised,
+    workerIds: input.workerIds,
   })
   const missionTitle = `Conductor: ${clipText(input.goal, 120)}`
   void dispatchSwarmAssignments({
@@ -485,6 +490,7 @@ export const Route = createFileRoute('/api/conductor-spawn')({
           const projectsDir = readOptionalString(body.projectsDir)
           const maxParallel = readMaxParallel(body.maxParallel)
           const supervised = body.supervised === true
+          const workerIds = readWorkerIds(body.workerIds)
           if (!goal) {
             return json(
               {
@@ -498,6 +504,7 @@ export const Route = createFileRoute('/api/conductor-spawn')({
             )
           }
 
+          if (Array.isArray(workerIds) && workerIds.length === 0) return json({ ok: false, error: 'workerIds must contain at least one rostered worker' }, { status: 400 })
           const prompt = buildOrchestratorPrompt(goal, loadDispatchSkill(), {
             orchestratorModel,
             workerModel,
@@ -514,6 +521,7 @@ export const Route = createFileRoute('/api/conductor-spawn')({
               missionName,
               maxParallel,
               supervised,
+              workerIds,
             })
             return json({
               ok: true,
