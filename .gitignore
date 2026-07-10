@@ -153,3 +153,5 @@ skills-bundle/
 .env.bak-*
 pr-triage-20260505-*/
 memory/handoffs/
+# Guard: workers must not recreate a handoff dir outside the runtime symlink
+memory/swarm/handoffs/

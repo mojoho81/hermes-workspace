@@ -455,7 +455,7 @@ export function buildWorkerPrompt(input: {
     '- Produce concrete artifacts or a concrete checkpoint; avoid vague status updates.',
     '- If you are blocked, say exactly what is missing and the smallest unblock action.',
     '- If this is part of a larger workflow, stop after your checkpoint and wait for orchestrator continuation.',
-    '- If context pressure is high, write a structured handoff to your handoffs/ directory before /new and continue from it on resume.',
+    `- If context pressure is high, write a structured handoff before /new and continue from it on resume. Handoffs go ONLY to \`~/.\u0068\u0065\u0072\u006d\u0065\u0073/profiles/${input.workerId}/memory/handoffs/\` (yours) or \`memory/handoffs/swarm/\` in the workspace repo (shared). Never create new handoff directories elsewhere in the repo.`,
     '',
     '## Required Checkpoint Format',
     'STATE: DONE | BLOCKED | NEEDS_INPUT | HANDOFF | IN_PROGRESS',
