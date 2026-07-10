@@ -87,6 +87,16 @@ async function isClaudeAgentHealthy(port = 8642): Promise<boolean> {
 }
 
 const config = defineConfig(({ mode, command }) => {
+  // In test mode, force NODE_ENV=test at config-resolution time. The systemd
+  // unit / shell may export NODE_ENV=production, and Vite's esbuild define
+  // statically replaces process.env.NODE_ENV in inlined deps (react,
+  // react-dom) with the config-time value — production React has no
+  // React.act, so every @testing-library/jsdom render would crash with
+  // "React.act is not a function". (test.env alone is too late: it applies
+  // in the worker after modules are transformed.)
+  if (mode === 'test') {
+    process.env.NODE_ENV = 'test'
+  }
   const env = loadEnv(mode, process.cwd(), '')
   // Bridge loadEnv into process.env for server-side SSR runtime code that
   // reads env vars directly from process.env (e.g. getBearerToken() in
@@ -433,6 +443,13 @@ const config = defineConfig(({ mode, command }) => {
 
   return {
     test: {
+      // Pin NODE_ENV for test workers. The workspace .env / systemd unit set
+      // NODE_ENV=production; if that leaks into the shell running vitest,
+      // react's CJS entry resolves the production bundle (no React.act) and
+      // every @testing-library render dies with "React.act is not a function".
+      env: {
+        NODE_ENV: 'test',
+      },
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
@@ -454,6 +471,9 @@ const config = defineConfig(({ mode, command }) => {
           'react-dom',
           '@testing-library/react',
           '@testing-library/dom',
+          // react-query calls hooks on its own imported React copy; inline it
+          // so it shares the single vitest-transformed React instance too.
+          '@tanstack/react-query',
         ],
       },
     },
