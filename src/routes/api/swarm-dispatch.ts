@@ -82,7 +82,10 @@ type RuntimeCheckpointSnapshot = {
 const MAX_PROMPT_CHARS = 32_000
 const MAX_OUTPUT_CHARS = 200_000
 const DEFAULT_TIMEOUT_S = 240
-const MAX_TIMEOUT_S = 600
+// Conductor build/fix missions run 20-30+ min via one-shot `chat -q` when no
+// live tmux session exists. 600s killed a healthy builder mid-mission on
+// 2026-07-10 (SIGTERM at exactly the cap).
+const MAX_TIMEOUT_S = 2_400
 
 function getProfilesDir(): string {
   const base = process.env.HERMES_HOME ?? process.env.CLAUDE_HOME
@@ -784,6 +787,20 @@ async function sendPromptToLiveSession(workerId: string, prompt: string): Promis
   }
 }
 
+// Quick-route buttons in the router chat prefill prompts like
+// "Use the research specialist for this:" — if dispatched unedited there is
+// no actual task. Reject anything that is just a routing preamble ending in
+// a colon with nothing of substance after it. See the 2026-07-07 triple
+// "empty task" incident (researcher/orchestrator/workspace all blocked).
+export function isBareTemplateTask(task: string): boolean {
+  const trimmed = task.trim()
+  if (!trimmed) return true
+  const templateMatch = /^use the [\w\s/-]+ specialist for this:?$/i.test(trimmed)
+  if (templateMatch) return true
+  // Generic guard: a single short line ending in ":" carries no task body.
+  return trimmed.length <= 80 && !trimmed.includes('\n') && trimmed.endsWith(':')
+}
+
 export function buildHermesChatQueryArgs(prompt: string): string[] {
   // `hermes chat -q` requires the query as the *immediate* next argv item.
   // Keeping the prompt adjacent to -q prevents argparse from interpreting
@@ -953,11 +970,19 @@ function runWorker(assignment: AssignmentRequest, timeoutMs: number, roster: Swa
 
         if (error) {
           const code = (error as { code?: number | null }).code ?? null
+          const timedOut = (error as { killed?: boolean }).killed === true || error.message.includes('ETIMEDOUT')
+          // error.message from execFile is "Command failed: <full argv>" which
+          // embeds the entire multi-KB dispatch prompt and buries the actual
+          // failure. Lead with the diagnosis, keep only a stub of the command.
+          const headline = timedOut
+            ? `Worker one-shot timed out after ${Math.round(timeoutMs / 1000)}s (SIGTERM). Long missions need the live tmux session or a higher timeoutSeconds.`
+            : `Worker one-shot failed (exit code ${code ?? 'unknown'}).`
+          const detail = stderrStr.trim() || stdoutStr.trim().slice(-800) || null
           const result: WorkerResult = {
             workerId,
             ok: false,
             output: out,
-            error: stderrStr.trim() || error.message,
+            error: [headline, detail, `cmd: ${cmd} chat -q <prompt ${prompt.length} chars>`].filter(Boolean).join('\n'),
             durationMs,
             exitCode: typeof code === 'number' ? code : null,
             delivery: 'oneshot',
@@ -1078,6 +1103,12 @@ export async function dispatchSwarmAssignments(body: DispatchRequest) {
   }
   if (assignments.some((assignment) => assignment.task.length === 0)) {
     throw new SwarmDispatchError('assignment task required')
+  }
+  const bareTemplate = assignments.find((assignment) => isBareTemplateTask(assignment.task))
+  if (bareTemplate) {
+    throw new SwarmDispatchError(
+      `Task for ${bareTemplate.workerId} is an unfilled routing template ("${bareTemplate.task.slice(0, 80)}"). Add the actual request after the colon before dispatching.`,
+    )
   }
   if (assignments.some((assignment) => assignment.task.length > MAX_PROMPT_CHARS)) {
     throw new SwarmDispatchError(`assignment task exceeds ${MAX_PROMPT_CHARS} characters`)

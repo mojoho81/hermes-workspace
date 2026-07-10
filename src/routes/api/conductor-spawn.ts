@@ -389,7 +389,7 @@ function createNativeConductorMission(input: {
     missionTitle,
     allowAsync: true,
     waitForCheckpoint: false,
-    timeoutSeconds: 600,
+    timeoutSeconds: 2_400,
     checkpointPollSeconds: 10,
     notifySessionKey: 'main',
   }).catch((error) => {

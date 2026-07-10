@@ -5,9 +5,31 @@ import {
   buildWorkerPrompt,
   checkpointFromRuntimeSnapshot,
   dispatchBlockReason,
+  isBareTemplateTask,
   runtimeCheckpointSignature,
   runtimeSnapshotIsFresh,
 } from './swarm-dispatch'
+
+describe('isBareTemplateTask', () => {
+  it('rejects unfilled quick-route templates (2026-07-07 empty-task incident)', () => {
+    expect(isBareTemplateTask('Use the research specialist for this:')).toBe(true)
+    expect(isBareTemplateTask('Use the builder specialist for this:')).toBe(true)
+    expect(isBareTemplateTask('use the pr / issues specialist for this:')).toBe(true)
+    expect(isBareTemplateTask('Use the docs specialist for this')).toBe(true)
+    expect(isBareTemplateTask('   ')).toBe(true)
+  })
+
+  it('rejects short single-line preambles ending in a colon', () => {
+    expect(isBareTemplateTask('Do the following:')).toBe(true)
+  })
+
+  it('accepts real tasks, including ones that start from a template', () => {
+    expect(isBareTemplateTask('Use the research specialist for this: profile bosnianbeauty89 archives')).toBe(false)
+    expect(isBareTemplateTask('Use the builder specialist for this:\nFix the graph view test flake')).toBe(false)
+    expect(isBareTemplateTask('Sweep open PRs and summarise BenchLoop runs')).toBe(false)
+    expect(isBareTemplateTask('Rename config keys: HERMES_HOME, CLAUDE_HOME, and update the docs to match the new provider layout')).toBe(false)
+  })
+})
 
 describe('checkpointFromRuntimeSnapshot', () => {
   it('maps runtime lifecycle fields into a structured checkpoint', () => {
