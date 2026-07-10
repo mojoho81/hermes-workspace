@@ -68,6 +68,7 @@ function readMaxParallel(value: unknown): number {
 }
 
 function readWorkerIds(value: unknown): string[] | undefined { if (value === undefined) return undefined; if (!Array.isArray(value)) return []; return [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))] }
+function inferWorkerIds(goal: string, roster: SwarmRoster): string[] | undefined { const match = goal.match(/assign(?: this mission)? only to ([a-z0-9_-]+)/i); if (!match) return undefined; const token = match[1].toLowerCase(); const worker = roster.workers.find((item) => item.id.toLowerCase() === token || item.name.toLowerCase() === token); return worker ? [worker.id] : undefined }
 function buildOrchestratorPrompt(
   goal: string,
   skill: string,
@@ -490,7 +491,7 @@ export const Route = createFileRoute('/api/conductor-spawn')({
           const projectsDir = readOptionalString(body.projectsDir)
           const maxParallel = readMaxParallel(body.maxParallel)
           const supervised = body.supervised === true
-          const workerIds = readWorkerIds(body.workerIds)
+          const workerIds = readWorkerIds(body.workerIds) ?? inferWorkerIds(goal, readSwarmRoster())
           if (!goal) {
             return json(
               {
