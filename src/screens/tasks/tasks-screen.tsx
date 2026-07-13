@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'motion/react'
 import { HugeiconsIcon } from '@hugeicons/react'
@@ -32,6 +32,9 @@ const ASSIGNEES_KEY = ['claude', 'tasks', 'assignees'] as const
 
 export const TASKS_BOARD_HELP_TEXT =
   'Workspace Tasks is a lightweight task board. Drag cards to change status. Use Dashboard Kanban for native multi-board controls.'
+
+export const EMPTY_TASKS_SWARM_HINT =
+  "Looking for the agent swarm board? It's at /swarm2"
 
 function SkeletonCard() {
   return (
@@ -253,6 +256,17 @@ export function TasksScreen() {
         <p className="mt-3 text-xs text-[var(--theme-muted)]">
           {TASKS_BOARD_HELP_TEXT}
         </p>
+        {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length === 0 && (
+          <p className="mt-1 text-xs text-[var(--theme-muted)]">
+            {EMPTY_TASKS_SWARM_HINT.replace(' /swarm2', '')}{' '}
+            <Link
+              to="/swarm2"
+              className="text-[var(--theme-accent)] hover:underline"
+            >
+              /swarm2
+            </Link>
+          </p>
+        )}
       </header>
 
       {/* Board */}

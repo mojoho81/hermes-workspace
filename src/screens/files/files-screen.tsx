@@ -1038,6 +1038,7 @@ export function FilesScreen() {
   const [entries, setEntries] = useState<Array<FileEntry>>([])
   const [treeLoading, setTreeLoading] = useState(false)
   const [treeError, setTreeError] = useState<string | null>(null)
+  const [noWorkspace, setNoWorkspace] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [selectedEntry, setSelectedEntry] = useState<FileEntry | null>(null)
 
@@ -1050,16 +1051,26 @@ export function FilesScreen() {
   const loadTree = useCallback(async () => {
     setTreeLoading(true)
     setTreeError(null)
+    setNoWorkspace(false)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000)
     try {
       const res = await fetch('/api/files?action=list&maxDepth=3', {
         signal: controller.signal,
       })
-      if (!res.ok)
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          code?: string
+        } | null
+        if (body?.code === 'no_workspace') {
+          setEntries([])
+          setNoWorkspace(true)
+          return
+        }
         throw new Error(
           `HTTP ${res.status} — check that HERMES_WORKSPACE_DIR is set`,
         )
+      }
       const data = (await res.json()) as FilesListResponse
       setEntries(Array.isArray(data.entries) ? data.entries : [])
     } catch (err) {
@@ -1244,6 +1255,17 @@ export function FilesScreen() {
             {treeLoading ? (
               <div className="px-3 py-2 text-xs text-primary-400 dark:text-neutral-500">
                 Loading server workspace…
+              </div>
+            ) : noWorkspace ? (
+              <div className="space-y-1 px-3 py-2 text-xs text-primary-500 dark:text-neutral-400">
+                <div className="font-medium text-primary-700 dark:text-neutral-200">
+                  No workspace configured
+                </div>
+                <div>
+                  The server has no valid workspace yet. Set
+                  HERMES_WORKSPACE_DIR (or add a workspace to the catalog),
+                  then refresh.
+                </div>
               </div>
             ) : treeError ? (
               <div className="space-y-1 px-3 py-2 text-xs text-red-500">

@@ -92,11 +92,27 @@ function buildReference(pathValue: string) {
   return `See file: workspace/${normalized}`
 }
 
-async function fetchFileTree(): Promise<Array<FileEntry>> {
+type FileTreeResult = {
+  entries: Array<FileEntry>
+  noWorkspace: boolean
+}
+
+async function fetchFileTree(): Promise<FileTreeResult> {
   const res = await fetch('/api/files?action=list')
-  if (!res.ok) throw new Error('Failed to load files')
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      code?: string
+    } | null
+    if (body?.code === 'no_workspace') {
+      return { entries: [], noWorkspace: true }
+    }
+    throw new Error('Failed to load files')
+  }
   const data = (await res.json()) as { entries?: Array<FileEntry> }
-  return Array.isArray(data.entries) ? data.entries : []
+  return {
+    entries: Array.isArray(data.entries) ? data.entries : [],
+    noWorkspace: false,
+  }
 }
 
 function filterTree(entries: Array<FileEntry>, term: string): Array<FileEntry> {
@@ -133,6 +149,7 @@ export function FileExplorerSidebar({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [noWorkspace, setNoWorkspace] = useState(false)
   const [search, setSearch] = useState('')
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [promptState, setPromptState] = useState<PromptState | null>(null)
@@ -144,9 +161,11 @@ export function FileExplorerSidebar({
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setNoWorkspace(false)
     try {
-      const nextEntries = await fetchFileTree()
-      setEntries(nextEntries)
+      const result = await fetchFileTree()
+      setEntries(result.entries)
+      setNoWorkspace(result.noWorkspace)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -438,7 +457,7 @@ export function FileExplorerSidebar({
         <ScrollAreaViewport className="px-1">
           {loading ? (
             <div className="px-3 py-2 text-xs text-primary-500">Loading…</div>
-          ) : error ? (
+          ) : noWorkspace || error ? (
             <div className="flex flex-col items-center justify-center gap-3 px-4 py-8 text-center">
               <div className="flex size-10 items-center justify-center rounded-xl border border-primary-200 bg-primary-100/60">
                 <HugeiconsIcon

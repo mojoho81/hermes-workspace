@@ -36,12 +36,34 @@ type FileEntry = {
  * form rejects any candidate that escapes the root via `..` segments or
  * that resolves to an absolute path outside the root. See #121.
  */
-async function getWorkspaceRoot(): Promise<string> {
+async function getWorkspaceRoot(): Promise<string | null> {
   const catalog = await loadWorkspaceCatalog()
   if (!catalog.isValid || !catalog.path) {
-    throw new Error('No valid workspace selected')
+    return null
   }
   return catalog.path
+}
+
+/**
+ * Structured non-500 response for the "no workspace selected" state, so the
+ * Files UI can render its workspace-selection empty state instead of a dead
+ * generic error. Mirrors the capability_unavailable payload convention
+ * (see src/lib/feature-gates.ts / api/mcp.ts): ok:false + machine-readable
+ * code + human message, with an empty entries list for list consumers.
+ */
+function noWorkspaceResponse() {
+  return json(
+    {
+      ok: false,
+      code: 'no_workspace',
+      message:
+        'No valid workspace selected. Configure a workspace (HERMES_WORKSPACE_DIR or the workspace catalog) to browse files.',
+      root: '',
+      base: '',
+      entries: [],
+    },
+    { status: 503 },
+  )
 }
 
 function ensureWorkspacePath(input: string, workspaceRoot: string) {
@@ -283,6 +305,7 @@ export const Route = createFileRoute('/api/files')({
           )
 
           const workspaceRoot = await getWorkspaceRoot()
+          if (!workspaceRoot) return noWorkspaceResponse()
 
           if (action === 'list' && hasGlob(inputPath)) {
             const globListing = await readGlobDirectory(
@@ -357,6 +380,7 @@ export const Route = createFileRoute('/api/files')({
 
         try {
           const workspaceRoot = await getWorkspaceRoot()
+          if (!workspaceRoot) return noWorkspaceResponse()
           const contentType = request.headers.get('content-type') || ''
           if (!contentType.includes('multipart/form-data')) {
             const csrfCheck = requireJsonContentType(request)
