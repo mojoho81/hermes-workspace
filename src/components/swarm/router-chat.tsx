@@ -12,6 +12,7 @@ import {
   Settings01Icon,
 } from '@hugeicons/core-free-icons'
 import type { CrewMember } from '@/hooks/use-crew-status'
+import { isBareTemplateTask } from '@/lib/bare-template-task'
 import { cn } from '@/lib/utils'
 
 type Mode = 'auto' | 'manual' | 'broadcast'
@@ -150,6 +151,8 @@ export function RouterChat({
     )
   }
 
+  const promptIsBareTemplate = isBareTemplateTask(prompt)
+
   const eligibleWorkers = members.map((m) => ({
     id: m.id,
     role: m.role,
@@ -204,6 +207,9 @@ export function RouterChat({
   }
 
   async function dispatch() {
+    // Same predicate as the server-side guard in /api/swarm-dispatch — catch
+    // unfilled quick-route templates before the round-trip.
+    if (promptIsBareTemplate) return
     let plan: Array<Assignment> = []
     if (mode === 'auto') {
       if (assignments.length === 0) {
@@ -343,6 +349,12 @@ export function RouterChat({
               }
               className="min-h-[8rem] resize-y rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] placeholder:text-[var(--theme-muted)] focus:border-[var(--theme-accent)] focus:outline-none"
             />
+            {prompt.trim() && promptIsBareTemplate ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-amber-400" role="alert">
+                <HugeiconsIcon icon={AlertCircleIcon} size={12} />
+                Add your task after the colon before dispatching.
+              </div>
+            ) : null}
             {!embedded ? (
               <div className="flex flex-wrap items-center gap-2">
                 {QUICK_ROUTES.map((quick) => (
@@ -394,7 +406,7 @@ export function RouterChat({
                   disabled={
                     dispatching ||
                     decomposing ||
-                    !prompt.trim() ||
+                    promptIsBareTemplate ||
                     (mode === 'manual' && !selectedId)
                   }
                   className={cn(

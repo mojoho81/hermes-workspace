@@ -12,6 +12,7 @@ import { appendSwarmMemoryEvent, buildSwarmStartupSnapshot } from '../../server/
 import { rosterByWorkerId, type SwarmRosterWorker } from '../../server/swarm-roster'
 import { publishSwarmCheckpointNotification } from '../../server/swarm-notifications'
 import { ensureSwarmProfileConfig } from '../../server/swarm-profile-config'
+import { isBareTemplateTask } from '../../lib/bare-template-task'
 
 const HERMES_BIN_CANDIDATES = [
   process.env.HERMES_CLI_BIN,
@@ -787,19 +788,10 @@ async function sendPromptToLiveSession(workerId: string, prompt: string): Promis
   }
 }
 
-// Quick-route buttons in the router chat prefill prompts like
-// "Use the research specialist for this:" — if dispatched unedited there is
-// no actual task. Reject anything that is just a routing preamble ending in
-// a colon with nothing of substance after it. See the 2026-07-07 triple
-// "empty task" incident (researcher/orchestrator/workspace all blocked).
-export function isBareTemplateTask(task: string): boolean {
-  const trimmed = task.trim()
-  if (!trimmed) return true
-  const templateMatch = /^use the [\w\s/-]+ specialist for this:?$/i.test(trimmed)
-  if (templateMatch) return true
-  // Generic guard: a single short line ending in ":" carries no task body.
-  return trimmed.length <= 80 && !trimmed.includes('\n') && trimmed.endsWith(':')
-}
+// Bare-template dispatch guard lives in src/lib/bare-template-task.ts so the
+// router chat UI can share the exact same predicate. Re-exported here to keep
+// the server-side import surface stable.
+export { isBareTemplateTask }
 
 export function buildHermesChatQueryArgs(prompt: string): string[] {
   // `hermes chat -q` requires the query as the *immediate* next argv item.
