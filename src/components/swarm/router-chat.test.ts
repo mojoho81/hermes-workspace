@@ -7,12 +7,13 @@
  * with React 19 hooks in jsdom. (Same pattern as
  * src/screens/graph/graph-screen.test.tsx.)
  */
-import { describe, expect, it, vi, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { RouterChat } from './router-chat'
+import type { Root } from 'react-dom/client'
 
 const reactActGlobal = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT: boolean
@@ -73,7 +74,7 @@ function dispatchButton(container: HTMLElement): HTMLButtonElement {
   // Label depends on mode: 'Route mission' (auto), 'Send to …' (manual),
   // 'Broadcast to …' (broadcast). Tests run in the default auto mode.
   const button = Array.from(container.querySelectorAll('button')).find((el) =>
-    /route mission|send to|broadcast to/i.test(el.textContent ?? ''),
+    /route mission|send to|broadcast to/i.test(el.textContent),
   )
   if (!button) throw new Error('dispatch button not found')
   return button
@@ -92,7 +93,9 @@ afterEach(async () => {
 
 describe('RouterChat bare-template guard', () => {
   it('disables dispatch and shows the inline warning for an unfilled quick-route template', async () => {
-    const container = await renderRouterChat('Use the builder specialist for this:')
+    const container = await renderRouterChat(
+      'Use the builder specialist for this:',
+    )
 
     expect(container.textContent).toContain(
       'Add your task after the colon before dispatching.',
@@ -123,7 +126,9 @@ describe('RouterChat bare-template guard', () => {
   it('never issues the dispatch fetch for a bare template even if invoked', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
-    const container = await renderRouterChat('Use the research specialist for this:')
+    const container = await renderRouterChat(
+      'Use the research specialist for this:',
+    )
 
     const button = dispatchButton(container)
     await React.act(async () => {

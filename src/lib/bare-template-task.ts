@@ -10,8 +10,12 @@
 export function isBareTemplateTask(task: string): boolean {
   const trimmed = task.trim()
   if (!trimmed) return true
-  const templateMatch = /^use the [\w\s/-]+ specialist for this:?$/i.test(trimmed)
+  const templateMatch = /^use the [\w\s/-]+ specialist for this:?$/i.test(
+    trimmed,
+  )
   if (templateMatch) return true
   // Generic guard: a single short line ending in ":" carries no task body.
-  return trimmed.length <= 80 && !trimmed.includes('\n') && trimmed.endsWith(':')
+  return (
+    trimmed.length <= 80 && !trimmed.includes('\n') && trimmed.endsWith(':')
+  )
 }
