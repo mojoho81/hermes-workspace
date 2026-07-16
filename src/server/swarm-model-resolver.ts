@@ -45,8 +45,14 @@ export function resolveSwarmModelLabel(
   if (/^sonnet\s*4\.5$|^claude\s*sonnet\s*4\.5$/.test(normalized)) {
     return { provider: 'anthropic', default: 'claude-sonnet-4-5' }
   }
+  if (/^(?:claude[- ]?)?fable[- ]?5$/.test(normalized)) {
+    return { provider: 'anthropic', default: 'claude-fable-5' }
+  }
 
   // OpenAI Codex family
+  if (/^gpt[- ]?5\.6[- ]?sol$/.test(normalized)) {
+    return { provider: 'openai-codex', default: 'gpt-5.6-sol' }
+  }
   if (/^gpt[- ]?5\.5$|^codex\s*\(?gpt[- ]?5\.5\)?$/.test(normalized)) {
     return { provider: 'openai-codex', default: 'gpt-5.5' }
   }

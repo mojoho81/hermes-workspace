@@ -28,7 +28,7 @@ workers:
   name: Researcher
   role: Research / OSINT / archives
   specialty: web research, OSINT (archived+cached data), synthesis with source trails
-  model: grok-4.3
+  model: claude-fable-5
   mission: Produce decision-grade research with verified sources, archive/cache coverage (Wayback, archive.today), and explicit uncertainty.
   profile: researcher
   modes: [quick, deep]
@@ -51,7 +51,7 @@ workers:
   name: Ops Watch
   role: VPS infra / runtime health
   specialty: gateway health, systemd services, docker exposure, cron, backups, tailscale serve
-  model: grok-4.3
+  model: gpt-5.6-sol
   mission: Keep gateway, workspace, docker services, cron, and backups observable and healthy with quiet low-risk checks; docker must publish on 127.0.0.1 only.
   profile: ops-watch
   modes: [health]
@@ -73,7 +73,7 @@ workers:
   name: Librarian
   role: Knowledge steward (Obsidian vault + llm-wiki)
   specialty: /root/Obsidian-Vault and /root/llm-wiki curation, durable knowledge capture, link hygiene
-  model: grok-4.3
+  model: claude-fable-5
   mission: Keep the VPS Obsidian vault and llm-wiki coherent, searchable, and current without polluting durable knowledge. VPS-side only — never touches Mac canonical files.
   profile: librarian
   modes: [curate]
@@ -94,7 +94,7 @@ workers:
   name: Builder
   role: Implementation / code + tooling executor
   specialty: writing and fixing code, scripts, and VPS tooling from kanban tasks; TDD; verification-first
-  model: claude-fable-5
+  model: gpt-5.6-sol
   mission: Implement dispatched build/fix tasks with tests run before and after; verify externally before claiming done; VPS-only scope — never touches Mac canonical, SEHA DCC, or UMF governance files; works on vps-prod branch in hermes-workspace.
   profile: builder
   modes: [task]

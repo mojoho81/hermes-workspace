@@ -85,6 +85,7 @@ describe('/api/swarm-runtime/reset', () => {
 
     const augurRuntime = JSON.parse(fs.readFileSync(path.join(tmpHome, 'profiles', 'augur', 'runtime.json'), 'utf-8'))
     const consulRuntime = JSON.parse(fs.readFileSync(path.join(tmpHome, 'profiles', 'consul', 'runtime.json'), 'utf-8'))
+    expect(fs.statSync(path.join(tmpHome, 'profiles', 'augur', 'runtime.json')).mode & 0o777).toBe(0o600)
 
     expect(augurRuntime.state).toBe('idle')
     expect(augurRuntime.phase).toBe('cancelled')

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { writeSwarmRuntimeJsonAtomic } from './swarm-foundation'
 
 let tempRoot: string
 
@@ -27,6 +28,7 @@ async function loadModule() {
   }))
   vi.doMock('./swarm-foundation', () => ({
     getSwarmProfilePath: (workerId: string) => join(tempRoot, workerId),
+    writeSwarmRuntimeJsonAtomic,
   }))
   vi.doMock('./chat-event-bus', () => ({
     publishChatEvent,
@@ -88,6 +90,7 @@ describe('swarm-notifications', () => {
 
     const runtimePath = join(tempRoot, 'swarm11', 'runtime.json')
     expect(existsSync(runtimePath)).toBe(true)
+    expect((await import('node:fs')).statSync(runtimePath).mode & 0o777).toBe(0o600)
     expect(JSON.parse(readFileSync(runtimePath, 'utf8'))).toMatchObject({
       notifySessionKey: 'qa-main',
       lastNotifiedCheckpointRaw: checkpoint.raw,

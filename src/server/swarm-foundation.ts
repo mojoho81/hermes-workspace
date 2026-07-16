@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -396,6 +397,39 @@ export function readSwarmRuntimeFile(
 }
 
 /**
+ * Persist profile runtime state without ever exposing new contents through a
+ * permissive existing inode. The exclusive temporary file is mode 0600; the
+ * descriptor is flushed with fsync before rename atomically replaces
+ * runtime.json with that hardened, durable inode.
+ */
+export function writeSwarmRuntimeJsonAtomic(runtimePath: string, value: Record<string, unknown>): void {
+  const tmpPath = `${runtimePath}.${process.pid}.${randomUUID()}.tmp`
+  let fd: number | null = null
+  try {
+    fd = fs.openSync(tmpPath, 'wx', 0o600)
+    fs.writeFileSync(fd, JSON.stringify(value, null, 2) + '\n', 'utf8')
+    fs.fsyncSync(fd)
+    fs.closeSync(fd)
+    fd = null
+    fs.renameSync(tmpPath, runtimePath)
+  } catch (error) {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd)
+      } catch {
+        // Descriptor may already be invalid; unlink below is the cleanup that matters.
+      }
+    }
+    try {
+      fs.unlinkSync(tmpPath)
+    } catch {
+      // The temporary file may not exist if exclusive creation failed.
+    }
+    throw error
+  }
+}
+
+/**
  * Patch a worker's `runtime.json` in place.
  *
  * Reads the existing file (if any) so unspecified fields are preserved,
@@ -432,17 +466,10 @@ export function patchSwarmRuntimeFile(
     }
   }
   const merged = { ...existing, ...patch, workerId }
-  const tmpPath = `${runtimePath}.tmp-${process.pid}-${Date.now()}`
   try {
-    fs.writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + '\n', 'utf8')
-    fs.renameSync(tmpPath, runtimePath)
+    writeSwarmRuntimeJsonAtomic(runtimePath, merged)
     return { ok: true }
   } catch (err) {
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {
-      // tmp may not exist if the write failed before creation
-    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),

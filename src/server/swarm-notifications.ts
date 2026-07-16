@@ -1,9 +1,9 @@
-import { join } from 'node:path'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import type { ParsedSwarmCheckpoint } from './swarm-checkpoints'
-import { getSwarmProfilePath } from './swarm-foundation'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { publishChatEvent } from './chat-event-bus'
+import { getSwarmProfilePath, writeSwarmRuntimeJsonAtomic } from './swarm-foundation'
+import type { ParsedSwarmCheckpoint } from './swarm-checkpoints'
 
 const ORCHESTRATOR_WORKER_ID = process.env.SWARM_ORCHESTRATOR_WORKER_ID?.trim() || 'orchestrator'
 const ORCHESTRATOR_TMUX_SESSION = `swarm-${ORCHESTRATOR_WORKER_ID}`
@@ -94,7 +94,7 @@ function readRuntime(runtimePath: string): Record<string, unknown> {
 }
 
 function writeRuntime(runtimePath: string, value: Record<string, unknown>): void {
-  writeFileSync(runtimePath, JSON.stringify(value, null, 2) + '\n')
+  writeSwarmRuntimeJsonAtomic(runtimePath, value)
 }
 
 function checkpointSummary(checkpoint: ParsedSwarmCheckpoint): string {
@@ -155,7 +155,7 @@ export function publishSwarmCheckpointNotification(input: {
   const current = readRuntime(runtimePath)
   const currentRaw = typeof current.lastNotifiedCheckpointRaw === 'string' ? current.lastNotifiedCheckpointRaw : null
   const currentSig = typeof current.lastNotifiedCheckpointSignature === 'string' ? current.lastNotifiedCheckpointSignature : null
-  const checkpointRaw = input.checkpoint.raw?.trim() || ''
+  const checkpointRaw = input.checkpoint.raw.trim()
   const sessionKey = input.notifySessionKey?.trim() || (typeof current.notifySessionKey === 'string' && current.notifySessionKey.trim()) || MAIN_SESSION_KEY
 
   // Build a checkpoint signature that includes state + status + raw + result, so dedupe
@@ -163,7 +163,7 @@ export function publishSwarmCheckpointNotification(input: {
   // state actually changed (e.g. worker went executing -> done with same scraped raw).
   const checkpointSignature = [
     input.checkpoint.stateLabel,
-    input.checkpoint.checkpointStatus ?? '',
+    input.checkpoint.checkpointStatus,
     input.checkpoint.result ?? '',
     input.checkpoint.blocker ?? '',
     input.checkpoint.nextAction ?? '',
@@ -176,7 +176,7 @@ export function publishSwarmCheckpointNotification(input: {
   // Backwards-compat: if no signature was ever stored but raw matches AND nothing else
   // could have changed (raw is non-empty + state matches a 'no progress' shape), still skip.
   // Otherwise, fall through and publish.
-  if (!currentSig && checkpointRaw && currentRaw === checkpointRaw && (input.checkpoint.stateLabel === 'IN_PROGRESS' || !input.checkpoint.stateLabel)) {
+  if (!currentSig && checkpointRaw && currentRaw === checkpointRaw && input.checkpoint.stateLabel === 'IN_PROGRESS') {
     return { published: false, sessionKey, route: 'noop' }
   }
 

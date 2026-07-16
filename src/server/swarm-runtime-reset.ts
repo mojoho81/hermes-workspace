@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getProfilesDir } from './claude-paths'
-import { listSwarmWorkerIds } from './swarm-foundation'
+import { listSwarmWorkerIds, writeSwarmRuntimeJsonAtomic } from './swarm-foundation'
 
 export type SwarmRuntimeResetResult = {
   workerId: string
@@ -85,9 +85,7 @@ export function resetSwarmWorkerRuntime(workerId: string, input: { actor: string
       cancellationReason: input.reason,
       cancelledBy: input.actor,
     }
-    const tmp = `${runtimePath}.${process.pid}.${Date.now()}.tmp`
-    writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n')
-    renameSync(tmp, runtimePath)
+    writeSwarmRuntimeJsonAtomic(runtimePath, next)
     return { workerId, ok: true }
   } catch (error) {
     return {

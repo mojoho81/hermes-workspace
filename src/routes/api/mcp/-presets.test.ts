@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { presetsFilePath } from '../../../server/mcp-presets-store'
 
@@ -27,6 +27,7 @@ let homeDir: string
 let seedFile: string
 const originalHermesHome = process.env.HERMES_HOME
 const originalSeedPath = process.env.MCP_PRESETS_SEED_PATH
+const originalHermesPassword = process.env.HERMES_PASSWORD
 const originalPassword = process.env.CLAUDE_PASSWORD
 
 interface PresetsRouteModule {
@@ -52,6 +53,7 @@ beforeEach(() => {
   writeFileSync(seedFile, JSON.stringify(VALID_SEED))
   process.env.HERMES_HOME = homeDir
   process.env.MCP_PRESETS_SEED_PATH = seedFile
+  delete process.env.HERMES_PASSWORD
 })
 
 afterEach(() => {
@@ -60,6 +62,8 @@ afterEach(() => {
   else process.env.HERMES_HOME = originalHermesHome
   if (originalSeedPath === undefined) delete process.env.MCP_PRESETS_SEED_PATH
   else process.env.MCP_PRESETS_SEED_PATH = originalSeedPath
+  if (originalHermesPassword === undefined) delete process.env.HERMES_PASSWORD
+  else process.env.HERMES_PASSWORD = originalHermesPassword
   if (originalPassword === undefined) delete process.env.CLAUDE_PASSWORD
   else process.env.CLAUDE_PASSWORD = originalPassword
   rmSync(homeDir, { recursive: true, force: true })

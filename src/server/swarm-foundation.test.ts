@@ -9,7 +9,10 @@ import {
   deriveSwarmBoundary,
   getSwarmWrapperPath,
   normalizeSwarmRuntime,
-  parseSwarmPluginManifest, patchSwarmRuntimeFile, readSwarmRuntimeFile 
+  parseSwarmPluginManifest,
+  patchSwarmRuntimeFile,
+  readSwarmRuntimeFile,
+  writeSwarmRuntimeJsonAtomic,
 } from './swarm-foundation'
 import { readSwarmRoster } from './swarm-roster'
 
@@ -172,6 +175,28 @@ describe('parseSwarmPluginManifest', () => {
 })
 
 describe('patchSwarmRuntimeFile', () => {
+  it('atomically creates and replaces runtime.json with mode 0600', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atomic-runtime-mode-'))
+    try {
+      const runtimePath = path.join(tempDir, 'runtime.json')
+
+      writeSwarmRuntimeJsonAtomic(runtimePath, { workerId: 'swarm9', notifySessionKey: 'first' })
+      expect(fs.statSync(runtimePath).mode & 0o777).toBe(0o600)
+
+      fs.chmodSync(runtimePath, 0o644)
+      writeSwarmRuntimeJsonAtomic(runtimePath, { workerId: 'swarm9', notifySessionKey: 'second' })
+
+      expect(fs.statSync(runtimePath).mode & 0o777).toBe(0o600)
+      expect(JSON.parse(fs.readFileSync(runtimePath, 'utf8'))).toEqual({
+        workerId: 'swarm9',
+        notifySessionKey: 'second',
+      })
+      expect(fs.readdirSync(tempDir)).toEqual(['runtime.json'])
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('returns ok=false when the profile path does not exist', () => {
     const tempDir = path.join(os.tmpdir(), `patch-runtime-missing-${Date.now()}`)
     const result = patchSwarmRuntimeFile(tempDir, 'swarm9', { state: 'idle' })
@@ -195,6 +220,7 @@ describe('patchSwarmRuntimeFile', () => {
       expect(runtime.state).toBe('idle')
       expect(runtime.phase).toBe('stopped')
       expect(runtime.currentTask).toBeNull()
+      expect(fs.statSync(path.join(tempDir, 'runtime.json')).mode & 0o777).toBe(0o600)
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }

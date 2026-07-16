@@ -35,7 +35,26 @@ describe('resolveSwarmModelLabel', () => {
     })
   })
 
+  it('resolves the approved Claude Fable label', () => {
+    expect(resolveSwarmModelLabel('claude-fable-5')).toEqual({
+      provider: 'anthropic',
+      default: 'claude-fable-5',
+    })
+    expect(resolveSwarmModelLabel('  Claude   Fable 5  ')).toEqual({
+      provider: 'anthropic',
+      default: 'claude-fable-5',
+    })
+  })
+
   it('resolves OpenAI Codex labels', () => {
+    expect(resolveSwarmModelLabel('gpt-5.6-sol')).toEqual({
+      provider: 'openai-codex',
+      default: 'gpt-5.6-sol',
+    })
+    expect(resolveSwarmModelLabel('GPT 5.6 SOL')).toEqual({
+      provider: 'openai-codex',
+      default: 'gpt-5.6-sol',
+    })
     expect(resolveSwarmModelLabel('GPT-5.5')).toEqual({
       provider: 'openai-codex',
       default: 'gpt-5.5',

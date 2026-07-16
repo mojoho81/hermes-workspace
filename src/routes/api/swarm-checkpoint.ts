@@ -1,14 +1,14 @@
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createFileRoute } from '@tanstack/react-router'
 import { json } from '@tanstack/react-start'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 import { isAuthenticated } from '../../server/auth-middleware'
-import { getSwarmProfilePath } from '../../server/swarm-foundation'
+import { getSwarmProfilePath, writeSwarmRuntimeJsonAtomic } from '../../server/swarm-foundation'
 import { isSwarmWorkerId } from '../../server/swarm-roster'
 import { appendSwarmMemoryEvent } from '../../server/swarm-memory'
-import { checkpointFromRuntimeSnapshot, readRuntimeCheckpointSnapshot } from './swarm-dispatch'
 import { publishSwarmCheckpointNotification } from '../../server/swarm-notifications'
+import { checkpointFromRuntimeSnapshot, readRuntimeCheckpointSnapshot } from './swarm-dispatch'
 
 type CheckpointRequest = {
   workerId?: unknown
@@ -69,12 +69,6 @@ function readCurrent(runtimePath: string): Record<string, unknown> {
   }
 }
 
-function writeJsonAtomic(path: string, value: Record<string, unknown>): void {
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n')
-  renameSync(tmp, path)
-}
-
 export const Route = createFileRoute('/api/swarm-checkpoint')({
   server: {
     handlers: {
@@ -112,7 +106,7 @@ export const Route = createFileRoute('/api/swarm-checkpoint')({
         const runtimePath = join(profilePath, 'runtime.json')
         const current = readCurrent(runtimePath)
         const next = { ...current, ...patch }
-        writeJsonAtomic(runtimePath, next)
+        writeSwarmRuntimeJsonAtomic(runtimePath, next)
 
         const missionId = typeof next.currentMissionId === 'string' ? next.currentMissionId : null
         const assignmentId = typeof next.currentAssignmentId === 'string' ? next.currentAssignmentId : null

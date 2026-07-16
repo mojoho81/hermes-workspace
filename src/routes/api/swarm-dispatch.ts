@@ -1,18 +1,21 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { createFileRoute } from '@tanstack/react-router'
+import { json } from '@tanstack/react-start'
 import { isAuthenticated } from '../../server/auth-middleware'
-import { newestCheckpointFromMessages, parseSwarmCheckpoint, type ParsedSwarmCheckpoint } from '../../server/swarm-checkpoints'
+import { newestCheckpointFromMessages, parseSwarmCheckpoint } from '../../server/swarm-checkpoints'
 import { readWorkerMessages } from '../../server/swarm-chat-reader'
+import { writeSwarmRuntimeJsonAtomic } from '../../server/swarm-foundation'
 import { createOrUpdateMission, getSwarmMission, markMissionAssignmentDispatched, recordMissionAssignmentBlocked, recordMissionCheckpoint } from '../../server/swarm-missions'
 import { appendSwarmMemoryEvent, buildSwarmStartupSnapshot } from '../../server/swarm-memory'
-import { rosterByWorkerId, type SwarmRosterWorker } from '../../server/swarm-roster'
+import { rosterByWorkerId } from '../../server/swarm-roster'
 import { publishSwarmCheckpointNotification } from '../../server/swarm-notifications'
 import { ensureSwarmProfileConfig } from '../../server/swarm-profile-config'
 import { isBareTemplateTask } from '../../lib/bare-template-task'
+import type { ParsedSwarmCheckpoint } from '../../server/swarm-checkpoints'
+import type { SwarmRosterWorker } from '../../server/swarm-roster'
 
 const HERMES_BIN_CANDIDATES = [
   process.env.HERMES_CLI_BIN,
@@ -258,7 +261,7 @@ function writeRuntimePatch(workerId: string, patch: Record<string, unknown>): vo
     workerId,
     ...patch,
   }
-  writeFileSync(runtimePath, JSON.stringify(next, null, 2) + '\n')
+  writeSwarmRuntimeJsonAtomic(runtimePath, next)
 }
 
 function cleanRuntimeText(value: unknown): string | null {
