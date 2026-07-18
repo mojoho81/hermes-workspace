@@ -208,9 +208,42 @@ current_service_state() {
   return 1
 }
 
+# The status endpoint requires a session when password protection is on.
+# Mint one with the configured password so acceptance probes the real,
+# protected deployment instead of failing every healthy build with 401.
+acquire_workspace_auth() {
+  WORKSPACE_AUTH_COOKIE=""
+  local password headers token
+  # Mirror runtime precedence (src/server/auth-middleware.ts): a non-empty
+  # HERMES_PASSWORD wins regardless of file order; CLAUDE_PASSWORD is only
+  # a fallback. Last assignment of each key wins, like dotenv loading.
+  password="$(awk -F= '
+    /^[[:space:]]*HERMES_PASSWORD=/  { sub(/^[^=]*=/, ""); h=$0 }
+    /^[[:space:]]*CLAUDE_PASSWORD=/  { sub(/^[^=]*=/, ""); c=$0 }
+    END { if (h != "") print h; else print c }
+  ' "$REPO_ROOT/.env" 2>/dev/null)"
+  [ -n "$password" ] || return 0
+  headers="$(WORKSPACE_LOGIN_PASSWORD="$password" node -e '
+    process.stdout.write(JSON.stringify({ password: process.env.WORKSPACE_LOGIN_PASSWORD }))
+  ' | curl -fsS -D - -o /dev/null --max-time 10 \
+        -H 'Content-Type: application/json' \
+        --data-binary @- \
+        "http://127.0.0.1:3300/api/auth" 2>/dev/null || true)"
+  token="$(printf '%s' "$headers" | tr -d '\r' | grep -oE 'claude-auth=[^;[:space:]]+' | head -n 1)"
+  if [ -z "$token" ]; then
+    return 1
+  fi
+  WORKSPACE_AUTH_COOKIE="$token"
+}
+
 check_workspace_capabilities() {
-  local status_json
-  status_json="$(curl -fsS --max-time 10 "http://127.0.0.1:3300/api/connection-status" 2>/dev/null || true)"
+  local status_json curl_args=()
+  # The status endpoint requires authentication when HERMES_PASSWORD is set;
+  # an unauthenticated probe would fail every healthy build with HTTP 401.
+  if [ -n "${WORKSPACE_AUTH_COOKIE:-}" ]; then
+    curl_args=(-H "Cookie: ${WORKSPACE_AUTH_COOKIE}")
+  fi
+  status_json="$(curl -fsS --max-time 10 "${curl_args[@]}" "http://127.0.0.1:3300/api/connection-status" 2>/dev/null || true)"
   [ -n "$status_json" ] || return 1
   STATUS_JSON="$status_json" node -e '
     const s = JSON.parse(process.env.STATUS_JSON)
@@ -221,6 +254,24 @@ check_workspace_capabilities() {
       process.exit(1)
     }
   '
+}
+
+# The gateway capability negotiation completes several seconds after the
+# service starts listening; a single instant probe races that warm-up and
+# rejects healthy builds. Retry the same strict gate over a bounded window.
+check_workspace_capabilities_with_warmup() {
+  local attempts="${WORKSPACE_CAPABILITY_RETRIES:-15}"
+  local delay="${WORKSPACE_CAPABILITY_RETRY_DELAY:-2}"
+  local i
+  if ! acquire_workspace_auth; then
+    fail "could not authenticate acceptance probe against protected workspace"
+    return 1
+  fi
+  for i in $(seq 1 "$attempts"); do
+    if check_workspace_capabilities; then return 0; fi
+    [ "$i" -lt "$attempts" ] && sleep "$delay"
+  done
+  return 1
 }
 
 check_port() {
@@ -274,7 +325,7 @@ accept_new_build() {
     fail "$SERVICE not active after restart"
     return 1
   fi
-  if ! check_workspace_capabilities; then
+  if ! check_workspace_capabilities_with_warmup; then
     fail "Workspace enhanced capability check failed"
     return 1
   fi

@@ -23,10 +23,13 @@ type ServiceProbe = 'normal' | 'error' | 'inactive-after-acceptance'
 
 type FixtureOptions = {
   capabilityFailure?: boolean
+  capabilityWarmup?: boolean
   interruptAt?: InterruptWindow
   noRestart?: boolean
+  passwordPrecedence?: boolean
   persistentMutation?: boolean
   portFailure?: boolean
+  protectedAuth?: boolean
   reportBuildTempsInStatus?: boolean
   serviceProbe?: ServiceProbe
   transientMutation?: boolean
@@ -38,6 +41,7 @@ function executable(path: string, text: string) {
 }
 
 function fixture(options: FixtureOptions = {}) {
+  const authProtected = Boolean(options.protectedAuth || options.passwordPrecedence)
   const base = mkdtempSync(join(tmpdir(), 'workspace-deploy-atomic-'))
   created.push(base)
   const repo = join(base, 'repo')
@@ -55,7 +59,14 @@ function fixture(options: FixtureOptions = {}) {
   symlinkSync(join(runtime, 'runtime'), join(repo, '.runtime'))
   mkdirSync(join(repo, 'memory'))
   symlinkSync(join(runtime, 'memory-handoffs'), join(repo, 'memory', 'handoffs'))
-  writeFileSync(join(repo, '.env'), 'TEST=1\n')
+  writeFileSync(
+    join(repo, '.env'),
+    options.passwordPrecedence
+      ? 'CLAUDE_PASSWORD=legacy-secret\nHERMES_PASSWORD=test-secret\n'
+      : authProtected
+        ? 'HERMES_PASSWORD=test-secret\n'
+        : 'TEST=1\n',
+  )
   writeFileSync(join(repo, 'source.txt'), 'stable-source\n')
   writeFileSync(join(snapshot, 'source.txt'), 'stable-source\n')
   mkdirSync(join(repo, 'dist', 'server'), { recursive: true })
@@ -65,10 +76,12 @@ function fixture(options: FixtureOptions = {}) {
   const serviceProbeCount = join(base, 'service-probe-count')
   const gitStatusCount = join(base, 'git-status-count')
   const rootCurlCount = join(base, 'root-curl-count')
+  const capabilityCurlCount = join(base, 'capability-curl-count')
   writeFileSync(serviceState, 'active\n')
   writeFileSync(serviceProbeCount, '0\n')
   writeFileSync(gitStatusCount, '0\n')
   writeFileSync(rootCurlCount, '0\n')
+  writeFileSync(capabilityCurlCount, '0\n')
 
   let deployText = readFileSync(source, 'utf8').replace(
     'RUNTIME_ROOT="/root/hermes-runtime"',
@@ -91,6 +104,10 @@ function fixture(options: FixtureOptions = {}) {
     join(bin, 'node'),
     `#!/bin/sh
 if [ "$1" = "--version" ]; then echo v22.0.0; exit 0; fi
+if [ "$1" = "-e" ] && [ -n "\${WORKSPACE_LOGIN_PASSWORD:-}" ]; then
+  printf '{"password":"%s"}' "$WORKSPACE_LOGIN_PASSWORD"
+  exit 0
+fi
 if [ "$1" = "-e" ] && [ -n "\${STATUS_JSON:-}" ]; then exit ${options.capabilityFailure ? 1 : 0}; fi
 exit 0
 `,
@@ -171,9 +188,31 @@ exit 1
     join(bin, 'curl'),
     `#!/bin/sh
 url=""
-for arg in "$@"; do url="$arg"; done
+cookie=no
+json_ct=no
+data_binary=no
+for arg in "$@"; do
+  url="$arg"
+  [ "$arg" = "Cookie: claude-auth=test-token" ] && cookie=yes
+  [ "$arg" = "Content-Type: application/json" ] && json_ct=yes
+  [ "$arg" = "--data-binary" ] && data_binary=yes
+done
 case "$url" in
-  *connection-status*) printf '%s\\n' '{"status":"enhanced","capabilities":{"sessions":true,"skills":true,"memory":true,"config":true,"jobs":true}}'; exit 0 ;;
+  *api/auth)
+    [ '${authProtected ? 'yes' : 'no'}' = yes ] || exit 22
+    [ "$json_ct" = yes ] || exit 22
+    [ "$data_binary" = yes ] || exit 22
+    body=$(cat)
+    [ "$body" = '{"password":"test-secret"}' ] || exit 22
+    printf 'HTTP/1.1 200 OK\\r\\nSet-Cookie: claude-auth=test-token; Path=/; HttpOnly\\r\\n\\r\\n'
+    exit 0 ;;
+  *connection-status*)
+    if [ '${authProtected ? 'yes' : 'no'}' = yes ] && [ "$cookie" != yes ]; then exit 22; fi
+    count=$(cat '${capabilityCurlCount}')
+    count=$((count + 1))
+    printf '%s\\n' "$count" > '${capabilityCurlCount}'
+    if [ '${options.capabilityWarmup ? 'yes' : 'no'}' = yes ] && [ "$count" -lt 2 ]; then exit 22; fi
+    printf '%s\\n' '{"status":"enhanced","capabilities":{"sessions":true,"skills":true,"memory":true,"config":true,"jobs":true}}'; exit 0 ;;
   http://127.0.0.1:3300/)
     count=$(cat '${rootCurlCount}')
     count=$((count + 1))
@@ -189,9 +228,14 @@ exit 0
   const result = spawnSync(deploy, options.noRestart ? ['--no-restart'] : [], {
     cwd: repo,
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:/usr/bin:/bin` },
+    env: {
+      ...process.env,
+      PATH: `${bin}:/usr/bin:/bin`,
+      WORKSPACE_CAPABILITY_RETRIES: '2',
+      WORKSPACE_CAPABILITY_RETRY_DELAY: '0',
+    },
   })
-  return { base, repo, result, serviceState }
+  return { base, capabilityCurlCount, repo, result, serviceState }
 }
 
 afterEach(() => {
@@ -220,6 +264,34 @@ function expectOldBuildRestored(repo: string, serviceState: string) {
 }
 
 describe('atomic Workspace deployment', () => {
+  it('authenticates capability acceptance for a password-protected workspace', () => {
+    const { result, repo } = fixture({ protectedAuth: true })
+    expect(result.status).toBe(0)
+    expect(readFileSync(join(repo, 'dist', 'BUILD_COMMIT'), 'utf8')).toBe(
+      'deadbeef\n',
+    )
+  })
+
+  it('retries the capability gate through gateway warm-up before accepting', () => {
+    const { capabilityCurlCount, repo, result } = fixture({
+      capabilityWarmup: true,
+      protectedAuth: true,
+    })
+    expect(result.status).toBe(0)
+    expect(Number(readFileSync(capabilityCurlCount, 'utf8').trim())).toBeGreaterThanOrEqual(2)
+    expect(readFileSync(join(repo, 'dist', 'BUILD_COMMIT'), 'utf8')).toBe(
+      'deadbeef\n',
+    )
+  })
+
+  it('prefers HERMES_PASSWORD over CLAUDE_PASSWORD to match runtime auth precedence', () => {
+    const { repo, result } = fixture({ passwordPrecedence: true })
+    expect(result.status).toBe(0)
+    expect(readFileSync(join(repo, 'dist', 'BUILD_COMMIT'), 'utf8')).toBe(
+      'deadbeef\n',
+    )
+  })
+
   it('rolls back when enhanced capabilities fail after root health', () => {
     const { repo, result, serviceState } = fixture({ capabilityFailure: true })
     expect(result.status).not.toBe(0)
