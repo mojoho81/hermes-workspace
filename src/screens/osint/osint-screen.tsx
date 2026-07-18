@@ -105,6 +105,36 @@ export type OsintActionInput =
       decision: 'APPROVED' | 'REJECTED'
       rationale: string
     }
+  | {
+      action: 'collection-run'
+      caseId: string
+      adapter: string
+      selectorType: string
+      selector: string
+      question: string
+    }
+  | {
+      action: 'pivot-propose'
+      caseId: string
+      selectorType: string
+      selector: string
+      reason: string
+      confidence: number
+      parentFindingIds: Array<string>
+      recommendedAdapter: string
+    }
+  | {
+      action: 'pivot-review'
+      caseId: string
+      proposalId: string
+      decision: 'APPROVED' | 'REJECTED'
+      rationale: string
+    }
+  | {
+      action: 'pivot-execute'
+      caseId: string
+      question: string
+    }
 
 const fieldClass =
   'w-full rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none focus:border-blue-500'
@@ -163,9 +193,9 @@ function RecordGrid({ items, empty }: { items: Array<SafeRecord>; empty: string 
                   `Record ${index + 1}`,
               )}
             </strong>
-            {(item.status || item.state || item.review_state) && (
+            {item.status || item.state || item.review_state ? (
               <StateBadge value={item.status ?? item.state ?? item.review_state} />
-            )}
+            ) : null}
           </div>
           <dl className="space-y-1 text-xs">
             {Object.entries(item)
@@ -341,6 +371,339 @@ function AmendmentControls({
   )
 }
 
+function CollectionControls({
+  detail,
+  pending,
+  onAction,
+}: {
+  detail: OsintCaseDetail
+  pending: boolean
+  onAction: (action: OsintActionInput) => Promise<void>
+}) {
+  const runnable = detail.collection_plan.adapters.filter(
+    (item) => item.classification === 'WILL_RUN',
+  )
+  const firstRunnable = runnable.at(0)
+  const [adapter, setAdapter] = useState(firstRunnable?.adapter ?? '')
+  const [selector, setSelector] = useState('')
+  const [question, setQuestion] = useState('')
+  const selected = runnable.find((item) => item.adapter === adapter) ?? firstRunnable
+  const inputLabel = selected
+    ? `${selected.input_type.charAt(0).toUpperCase()}${selected.input_type.slice(1).replaceAll('_', ' ')} selector`
+    : 'Selector'
+
+  const run = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || !selector.trim() || !question.trim()) return
+    void onAction({
+      action: 'collection-run',
+      caseId: detail.case.case_id,
+      adapter: selected.adapter,
+      selectorType: selected.input_type,
+      selector: selector.trim(),
+      question: question.trim(),
+    })
+  }
+
+  return (
+    <Section title="Run authorized collection">
+      {!runnable.length ? (
+        <p className="text-sm text-[var(--theme-muted)]">
+          No configured adapter is currently authorized. Approve methods and egress first; the collection plan explains each blocker.
+        </p>
+      ) : (
+        <form className="grid gap-3" onSubmit={run}>
+          <p className="text-xs text-[var(--theme-muted)]">
+            Each request creates one bounded round, persists its evidence, verifies integrity, writes a factual report, and returns the case to REVIEW.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-xs text-[var(--theme-muted)]">
+              Authorized adapter
+              <select
+                className={`${fieldClass} mt-1`}
+                onChange={(event) => setAdapter(event.target.value)}
+                value={selected?.adapter ?? ''}
+              >
+                {runnable.map((item) => (
+                  <option key={item.adapter} value={item.adapter}>
+                    {item.adapter} · {item.input_type} · {item.egress_class}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-[var(--theme-muted)]">
+              {inputLabel}
+              <input
+                className={`${fieldClass} mt-1`}
+                maxLength={4096}
+                onChange={(event) => setSelector(event.target.value)}
+                required
+                value={selector}
+              />
+            </label>
+          </div>
+          <label className="text-xs text-[var(--theme-muted)]">
+            Round question
+            <textarea
+              className={`${fieldClass} mt-1`}
+              maxLength={4096}
+              onChange={(event) => setQuestion(event.target.value)}
+              required
+              value={question}
+            />
+          </label>
+          <div>
+            <Button disabled={pending || detail.case.state !== 'REVIEW'} type="submit">
+              {pending ? 'Collection running…' : 'Run collection'}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Section>
+  )
+}
+
+export function PivotControls({
+  detail,
+  pending,
+  onAction,
+}: {
+  detail: OsintCaseDetail
+  pending: boolean
+  onAction: (action: OsintActionInput) => Promise<void>
+}) {
+  const adapters = detail.collection_plan.adapters.filter(
+    (item) => item.classification === 'WILL_RUN',
+  )
+  const firstAdapter = adapters.at(0)
+  const [adapter, setAdapter] = useState(firstAdapter?.adapter ?? '')
+  const [selector, setSelector] = useState('')
+  const [reason, setReason] = useState('')
+  const [confidence, setConfidence] = useState('0.5')
+  const findingOptions = detail.evidence.findings.filter(
+    (item) => typeof item.finding_id === 'string',
+  )
+  const [parentFindingId, setParentFindingId] = useState(
+    findingOptions.at(0)?.finding_id ?? '',
+  )
+  const [reviewRationales, setReviewRationales] = useState<Record<string, string>>({})
+  const [roundQuestion, setRoundQuestion] = useState('')
+  const selected = adapters.find((item) => item.adapter === adapter) ?? firstAdapter
+  const proposed = detail.pivots.filter((item) => item.review_state === 'PROPOSED')
+  const approved = detail.pivots.filter(
+    (item) =>
+      item.review_state === 'APPROVED' && item.execution_state === 'NOT_SCHEDULED',
+  )
+
+  const propose = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || !selector.trim() || !reason.trim() || !parentFindingId) return
+    const numericConfidence = Number(confidence)
+    if (!Number.isFinite(numericConfidence) || numericConfidence < 0 || numericConfidence > 1) return
+    void onAction({
+      action: 'pivot-propose',
+      caseId: detail.case.case_id,
+      selectorType: selected.input_type,
+      selector: selector.trim(),
+      reason: reason.trim(),
+      confidence: numericConfidence,
+      parentFindingIds: [parentFindingId],
+      recommendedAdapter: selected.adapter,
+    })
+    setSelector('')
+    setReason('')
+  }
+
+  const review = (proposalId: string, decision: 'APPROVED' | 'REJECTED') => {
+    const rationale = (reviewRationales[proposalId] ?? '').trim()
+    if (!rationale) return
+    void onAction({
+      action: 'pivot-review',
+      caseId: detail.case.case_id,
+      proposalId,
+      decision,
+      rationale,
+    })
+  }
+
+  const execute = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!approved.length || !roundQuestion.trim()) return
+    void onAction({
+      action: 'pivot-execute',
+      caseId: detail.case.case_id,
+      question: roundQuestion.trim(),
+    })
+  }
+
+  return (
+    <Section title="Governed pivots">
+      <form className="grid gap-3" onSubmit={propose}>
+        <h3 className="text-sm font-semibold text-[var(--theme-text)]">Propose bounded pivot</h3>
+        <p className="text-xs text-[var(--theme-muted)]">
+          The selector is sent over bounded stdin and cleared after submission. Stored Workspace views show governed metadata only.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="text-xs text-[var(--theme-muted)]">
+            Adapter
+            <select
+              aria-label="Pivot adapter"
+              className={`${fieldClass} mt-1`}
+              onChange={(event) => setAdapter(event.target.value)}
+              value={selected?.adapter ?? ''}
+            >
+              {adapters.map((item) => (
+                <option key={item.adapter} value={item.adapter}>
+                  {item.adapter} · {item.input_type} · {item.egress_class}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-[var(--theme-muted)]">
+            {selected ? `${selected.input_type.replaceAll('_', ' ')} selector` : 'Selector'}
+            <input
+              aria-label="Pivot selector"
+              className={`${fieldClass} mt-1`}
+              maxLength={4096}
+              onChange={(event) => setSelector(event.target.value)}
+              required
+              value={selector}
+            />
+          </label>
+          <label className="text-xs text-[var(--theme-muted)]">
+            Parent finding
+            <select
+              aria-label="Pivot parent finding"
+              className={`${fieldClass} mt-1`}
+              onChange={(event) => setParentFindingId(event.target.value)}
+              required
+              value={parentFindingId}
+            >
+              {findingOptions.map((item) => (
+                <option key={item.finding_id} value={item.finding_id}>
+                  {item.citation_id} · {item.tool} · {item.status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-[var(--theme-muted)]">
+            Confidence
+            <input
+              aria-label="Pivot confidence"
+              className={`${fieldClass} mt-1`}
+              max={1}
+              min={0}
+              onChange={(event) => setConfidence(event.target.value)}
+              step={0.05}
+              type="number"
+              value={confidence}
+            />
+          </label>
+        </div>
+        <label className="text-xs text-[var(--theme-muted)]">
+          Reason grounded in parent evidence
+          <textarea
+            aria-label="Pivot reason"
+            className={`${fieldClass} mt-1`}
+            maxLength={4096}
+            onChange={(event) => setReason(event.target.value)}
+            required
+            value={reason}
+          />
+        </label>
+        <div>
+          <Button
+            disabled={
+              pending ||
+              detail.case.state !== 'REVIEW' ||
+              !findingOptions.length ||
+              !selected
+            }
+            type="submit"
+          >
+            Propose pivot
+          </Button>
+        </div>
+      </form>
+
+      {proposed.length > 0 && (
+        <div className="mt-6 space-y-3 border-t border-[var(--theme-border)] pt-4">
+          <h3 className="text-sm font-semibold text-[var(--theme-text)]">Pending pivot review</h3>
+          {proposed.map((item) => {
+            const proposalId = String(item.proposal_id)
+            return (
+              <article className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3" key={proposalId}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <strong className="font-mono text-xs text-[var(--theme-text)]">{proposalId}</strong>
+                  <StateBadge value={item.review_state} />
+                </div>
+                <dl className="my-3 grid gap-1 text-xs text-[var(--theme-text)]">
+                  <div>Adapter: {display(item.recommended_adapter)}</div>
+                  <div>Selector type: {display(item.selector_type)}</div>
+                  <div>Reason: {display(item.reason)}</div>
+                  <div>Confidence: {display(item.confidence)}</div>
+                  <div>Parent findings: {display(item.parent_finding_ids)}</div>
+                </dl>
+                <textarea
+                  aria-label={`Pivot review rationale for ${proposalId}`}
+                  className={fieldClass}
+                  maxLength={4096}
+                  onChange={(event) =>
+                    setReviewRationales((current) => ({
+                      ...current,
+                      [proposalId]: event.target.value,
+                    }))
+                  }
+                  placeholder="Required approval or rejection rationale"
+                  value={reviewRationales[proposalId] ?? ''}
+                />
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    disabled={pending || detail.case.state !== 'REVIEW'}
+                    onClick={() => review(proposalId, 'APPROVED')}
+                    type="button"
+                  >
+                    Approve pivot
+                  </Button>
+                  <Button
+                    disabled={pending || detail.case.state !== 'REVIEW'}
+                    onClick={() => review(proposalId, 'REJECTED')}
+                    type="button"
+                    variant="outline"
+                  >
+                    Reject pivot
+                  </Button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      <form className="mt-6 grid gap-3 border-t border-[var(--theme-border)] pt-4" onSubmit={execute}>
+        <h3 className="text-sm font-semibold text-[var(--theme-text)]">
+          Run approved pivots ({approved.length})
+        </h3>
+        <textarea
+          aria-label="Approved pivot round question"
+          className={fieldClass}
+          maxLength={4096}
+          onChange={(event) => setRoundQuestion(event.target.value)}
+          placeholder="Bounded question for this governed round"
+          required
+          value={roundQuestion}
+        />
+        <div>
+          <Button disabled={pending || !approved.length || detail.case.state !== 'REVIEW'} type="submit">
+            Run approved pivots
+          </Button>
+        </div>
+      </form>
+    </Section>
+  )
+}
+
+
 export function OsintCaseDetailView({
   detail,
   onAction,
@@ -415,7 +778,13 @@ export function OsintCaseDetailView({
       <Section title="Amendment history">
         <RecordGrid items={detail.amendments} empty="No authorization amendments." />
       </Section>
-      {onAction && <AmendmentControls detail={detail} onAction={onAction} pending={actionPending} />}
+      {onAction && (
+        <>
+          <AmendmentControls detail={detail} onAction={onAction} pending={actionPending} />
+          <CollectionControls detail={detail} onAction={onAction} pending={actionPending} />
+          <PivotControls detail={detail} onAction={onAction} pending={actionPending} />
+        </>
+      )}
       <Section title="Entities & relations">
         <div className="grid gap-4 xl:grid-cols-2">
           <RecordGrid items={detail.entities.items} empty="No entities." />

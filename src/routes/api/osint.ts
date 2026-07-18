@@ -36,7 +36,96 @@ const ChangesSchema = z
   })
   .strict()
   .refine((changes) => Object.keys(changes).length > 0)
-const ActionSchema = z.discriminatedUnion('action', [
+const CollectionSchema = z
+  .object({
+    action: z.literal('collection-run'),
+    caseId: z.string().regex(CASE_ID_RE),
+    adapter: z.enum([
+      'sherlock',
+      'user-scanner',
+      'ignorant',
+      'whois',
+      'dig',
+      'waybackurls',
+      'exiftool',
+      'yt-dlp',
+      'tesseract',
+    ]),
+    selectorType: z.enum(['username', 'email', 'phone', 'domain', 'media_path', 'url']),
+    selector: z.string().trim().min(1).max(4096),
+    question: boundedText,
+  })
+  .strict()
+  .refine(
+    (request) =>
+      ({
+        sherlock: 'username',
+        'user-scanner': 'email',
+        ignorant: 'phone',
+        whois: 'domain',
+        dig: 'domain',
+        waybackurls: 'domain',
+        exiftool: 'media_path',
+        'yt-dlp': 'url',
+        tesseract: 'media_path',
+      })[request.adapter] === request.selectorType,
+  )
+const PivotProposalSchema = z
+  .object({
+    action: z.literal('pivot-propose'),
+    caseId: z.string().regex(CASE_ID_RE),
+    selectorType: z.enum(['username', 'email', 'phone', 'domain', 'media_path', 'url']),
+    selector: z.string().trim().min(1).max(4096),
+    reason: boundedText,
+    confidence: z.number().min(0).max(1),
+    parentFindingIds: z
+      .array(z.string().regex(/^finding-[0-9a-f]{32}$/))
+      .min(1)
+      .max(100),
+    recommendedAdapter: z.enum([
+      'sherlock',
+      'user-scanner',
+      'ignorant',
+      'whois',
+      'dig',
+      'waybackurls',
+      'exiftool',
+      'yt-dlp',
+      'tesseract',
+    ]),
+  })
+  .strict()
+  .refine(
+    (request) =>
+      ({
+        sherlock: 'username',
+        'user-scanner': 'email',
+        ignorant: 'phone',
+        whois: 'domain',
+        dig: 'domain',
+        waybackurls: 'domain',
+        exiftool: 'media_path',
+        'yt-dlp': 'url',
+        tesseract: 'media_path',
+      })[request.recommendedAdapter] === request.selectorType,
+  )
+const PivotReviewSchema = z
+  .object({
+    action: z.literal('pivot-review'),
+    caseId: z.string().regex(CASE_ID_RE),
+    proposalId: z.string().regex(/^pivot-[0-9a-f]{64}$/),
+    decision: z.enum(['APPROVED', 'REJECTED']),
+    rationale: boundedText,
+  })
+  .strict()
+const PivotExecuteSchema = z
+  .object({
+    action: z.literal('pivot-execute'),
+    caseId: z.string().regex(CASE_ID_RE),
+    question: boundedText,
+  })
+  .strict()
+const ActionSchema = z.union([
   z
     .object({
       action: z.literal('amendment-propose'),
@@ -54,6 +143,10 @@ const ActionSchema = z.discriminatedUnion('action', [
       rationale: boundedText,
     })
     .strict(),
+  CollectionSchema,
+  PivotProposalSchema,
+  PivotReviewSchema,
+  PivotExecuteSchema,
 ])
 
 function response(payload: object, status = 200) {
@@ -63,14 +156,19 @@ function response(payload: object, status = 200) {
   })
 }
 
-async function runBroker(args: Array<string>): Promise<Record<string, unknown>> {
+async function runBroker(
+  args: Array<string>,
+  timeout = 15_000,
+  stdinPayload?: string,
+  module = 'osint_platform.workspace_api',
+): Promise<Record<string, unknown>> {
   const stdout = await new Promise<string>((resolve, reject) => {
-    execFile(
+    const child = execFile(
       PYTHON,
-      ['-m', 'osint_platform.workspace_api', ...args],
+      ['-m', module, ...args],
       {
         cwd: PLATFORM_ROOT,
-        timeout: 15_000,
+        timeout,
         maxBuffer: MAX_BROKER_BYTES,
         shell: false,
         windowsHide: true,
@@ -87,6 +185,15 @@ async function runBroker(args: Array<string>): Promise<Record<string, unknown>> 
         else resolve(value)
       },
     )
+    if (stdinPayload !== undefined) {
+      if (child.stdin === null) {
+        child.kill()
+        reject(new Error('broker stdin unavailable'))
+        return
+      }
+      child.stdin.on('error', reject)
+      child.stdin.end(stdinPayload)
+    }
   })
   const parsed: unknown = JSON.parse(stdout)
   if (
@@ -164,30 +271,74 @@ export const Route = createFileRoute('/api/osint')({
           return response({ ok: false, error: 'Invalid OSINT action' }, 400)
         }
         const action = parsed.data
-        const args =
-          action.action === 'amendment-propose'
-            ? [
-                'amendment-propose',
-                '--case-id',
-                action.caseId,
-                '--changes-json',
-                canonicalChanges(action.changes),
-                '--rationale',
-                action.rationale,
-              ]
-            : [
-                'amendment-review',
-                '--case-id',
-                action.caseId,
-                '--amendment-id',
-                action.amendmentId,
-                '--decision',
-                action.decision,
-                '--rationale',
-                action.rationale,
-              ]
+        let args: Array<string>
+        let timeout = 15_000
+        let stdinPayload: string | undefined
+        let module = 'osint_platform.workspace_api'
+        if (action.action === 'amendment-propose') {
+          args = [
+            'amendment-propose',
+            '--case-id',
+            action.caseId,
+            '--changes-json',
+            canonicalChanges(action.changes),
+            '--rationale',
+            action.rationale,
+          ]
+        } else if (action.action === 'amendment-review') {
+          args = [
+            'amendment-review',
+            '--case-id',
+            action.caseId,
+            '--amendment-id',
+            action.amendmentId,
+            '--decision',
+            action.decision,
+            '--rationale',
+            action.rationale,
+          ]
+        } else if (action.action === 'collection-run') {
+          args = ['collection-run-stdin']
+          stdinPayload = JSON.stringify({
+            case_id: action.caseId,
+            adapter: action.adapter,
+            selector_type: action.selectorType,
+            selector: action.selector,
+            question: action.question,
+          })
+          timeout = 90_000
+        } else {
+          module = 'osint_platform.workspace_pivot_cli'
+          if (action.action === 'pivot-propose') {
+            args = ['pivot-propose-stdin']
+            stdinPayload = JSON.stringify({
+              case_id: action.caseId,
+              selector_type: action.selectorType,
+              selector: action.selector,
+              reason: action.reason,
+              confidence: action.confidence,
+              parent_finding_ids: action.parentFindingIds,
+              recommended_adapter: action.recommendedAdapter,
+            })
+          } else if (action.action === 'pivot-review') {
+            args = ['pivot-review-stdin']
+            stdinPayload = JSON.stringify({
+              case_id: action.caseId,
+              proposal_id: action.proposalId,
+              decision: action.decision,
+              rationale: action.rationale,
+            })
+          } else {
+            args = ['pivot-execute-stdin']
+            stdinPayload = JSON.stringify({
+              case_id: action.caseId,
+              question: action.question,
+            })
+            timeout = 90_000
+          }
+        }
         try {
-          return response(await runBroker(args))
+          return response(await runBroker(args, timeout, stdinPayload, module))
         } catch {
           return response(
             { ok: false, error: 'OSINT broker returned an invalid response' },
