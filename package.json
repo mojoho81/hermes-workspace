@@ -9,7 +9,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "node scripts/guard-build.mjs && vite build",
     "start:all": "concurrently \"hermes gateway run\" \"pnpm dev\"",
     "start": "node server-entry.js",
     "start:dev": "vite dev",

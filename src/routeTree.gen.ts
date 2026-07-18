@@ -20,6 +20,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReserveRouteImport } from './routes/reserve'
 import { Route as ProfilesRouteImport } from './routes/profiles'
 import { Route as PlaygroundRouteImport } from './routes/playground'
+import { Route as OsintRouteImport } from './routes/osint'
 import { Route as OperationsRouteImport } from './routes/operations'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as McpRouteImport } from './routes/mcp'
@@ -82,6 +83,7 @@ import { Route as ApiPlaygroundNpcRouteImport } from './routes/api/playground-np
 import { Route as ApiPlaygroundAdminRouteImport } from './routes/api/playground-admin'
 import { Route as ApiPingRouteImport } from './routes/api/ping'
 import { Route as ApiPathsRouteImport } from './routes/api/paths'
+import { Route as ApiOsintRouteImport } from './routes/api/osint'
 import { Route as ApiModelsRouteImport } from './routes/api/models'
 import { Route as ApiMemoryRouteImport } from './routes/api/memory'
 import { Route as ApiMediaRouteImport } from './routes/api/media'
@@ -224,6 +226,11 @@ const ProfilesRoute = ProfilesRouteImport.update({
 const PlaygroundRoute = PlaygroundRouteImport.update({
   id: '/playground',
   path: '/playground',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OsintRoute = OsintRouteImport.update({
+  id: '/osint',
+  path: '/osint',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OperationsRoute = OperationsRouteImport.update({
@@ -535,6 +542,11 @@ const ApiPingRoute = ApiPingRouteImport.update({
 const ApiPathsRoute = ApiPathsRouteImport.update({
   id: '/api/paths',
   path: '/api/paths',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOsintRoute = ApiOsintRouteImport.update({
+  id: '/api/osint',
+  path: '/api/osint',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiModelsRoute = ApiModelsRouteImport.update({
@@ -1000,6 +1012,7 @@ export interface FileRoutesByFullPath {
   '/mcp': typeof McpRoute
   '/memory': typeof MemoryRoute
   '/operations': typeof OperationsRoute
+  '/osint': typeof OsintRoute
   '/playground': typeof PlaygroundRoute
   '/profiles': typeof ProfilesRoute
   '/reserve': typeof ReserveRouteWithChildren
@@ -1042,6 +1055,7 @@ export interface FileRoutesByFullPath {
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
+  '/api/osint': typeof ApiOsintRoute
   '/api/paths': typeof ApiPathsRoute
   '/api/ping': typeof ApiPingRoute
   '/api/playground-admin': typeof ApiPlaygroundAdminRoute
@@ -1163,6 +1177,7 @@ export interface FileRoutesByTo {
   '/mcp': typeof McpRoute
   '/memory': typeof MemoryRoute
   '/operations': typeof OperationsRoute
+  '/osint': typeof OsintRoute
   '/playground': typeof PlaygroundRoute
   '/profiles': typeof ProfilesRoute
   '/reserve': typeof ReserveRouteWithChildren
@@ -1204,6 +1219,7 @@ export interface FileRoutesByTo {
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
+  '/api/osint': typeof ApiOsintRoute
   '/api/paths': typeof ApiPathsRoute
   '/api/ping': typeof ApiPingRoute
   '/api/playground-admin': typeof ApiPlaygroundAdminRoute
@@ -1326,6 +1342,7 @@ export interface FileRoutesById {
   '/mcp': typeof McpRoute
   '/memory': typeof MemoryRoute
   '/operations': typeof OperationsRoute
+  '/osint': typeof OsintRoute
   '/playground': typeof PlaygroundRoute
   '/profiles': typeof ProfilesRoute
   '/reserve': typeof ReserveRouteWithChildren
@@ -1368,6 +1385,7 @@ export interface FileRoutesById {
   '/api/media': typeof ApiMediaRoute
   '/api/memory': typeof ApiMemoryRouteWithChildren
   '/api/models': typeof ApiModelsRoute
+  '/api/osint': typeof ApiOsintRoute
   '/api/paths': typeof ApiPathsRoute
   '/api/ping': typeof ApiPingRoute
   '/api/playground-admin': typeof ApiPlaygroundAdminRoute
@@ -1491,6 +1509,7 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/memory'
     | '/operations'
+    | '/osint'
     | '/playground'
     | '/profiles'
     | '/reserve'
@@ -1533,6 +1552,7 @@ export interface FileRouteTypes {
     | '/api/media'
     | '/api/memory'
     | '/api/models'
+    | '/api/osint'
     | '/api/paths'
     | '/api/ping'
     | '/api/playground-admin'
@@ -1654,6 +1674,7 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/memory'
     | '/operations'
+    | '/osint'
     | '/playground'
     | '/profiles'
     | '/reserve'
@@ -1695,6 +1716,7 @@ export interface FileRouteTypes {
     | '/api/media'
     | '/api/memory'
     | '/api/models'
+    | '/api/osint'
     | '/api/paths'
     | '/api/ping'
     | '/api/playground-admin'
@@ -1816,6 +1838,7 @@ export interface FileRouteTypes {
     | '/mcp'
     | '/memory'
     | '/operations'
+    | '/osint'
     | '/playground'
     | '/profiles'
     | '/reserve'
@@ -1858,6 +1881,7 @@ export interface FileRouteTypes {
     | '/api/media'
     | '/api/memory'
     | '/api/models'
+    | '/api/osint'
     | '/api/paths'
     | '/api/ping'
     | '/api/playground-admin'
@@ -1980,6 +2004,7 @@ export interface RootRouteChildren {
   McpRoute: typeof McpRoute
   MemoryRoute: typeof MemoryRoute
   OperationsRoute: typeof OperationsRoute
+  OsintRoute: typeof OsintRoute
   PlaygroundRoute: typeof PlaygroundRoute
   ProfilesRoute: typeof ProfilesRoute
   ReserveRoute: typeof ReserveRouteWithChildren
@@ -2022,6 +2047,7 @@ export interface RootRouteChildren {
   ApiMediaRoute: typeof ApiMediaRoute
   ApiMemoryRoute: typeof ApiMemoryRouteWithChildren
   ApiModelsRoute: typeof ApiModelsRoute
+  ApiOsintRoute: typeof ApiOsintRoute
   ApiPathsRoute: typeof ApiPathsRoute
   ApiPingRoute: typeof ApiPingRoute
   ApiPlaygroundAdminRoute: typeof ApiPlaygroundAdminRoute
@@ -2175,6 +2201,13 @@ declare module '@tanstack/react-router' {
       path: '/playground'
       fullPath: '/playground'
       preLoaderRoute: typeof PlaygroundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/osint': {
+      id: '/osint'
+      path: '/osint'
+      fullPath: '/osint'
+      preLoaderRoute: typeof OsintRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/operations': {
@@ -2609,6 +2642,13 @@ declare module '@tanstack/react-router' {
       path: '/api/paths'
       fullPath: '/api/paths'
       preLoaderRoute: typeof ApiPathsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/osint': {
+      id: '/api/osint'
+      path: '/api/osint'
+      fullPath: '/api/osint'
+      preLoaderRoute: typeof ApiOsintRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/models': {
@@ -3457,6 +3497,7 @@ const rootRouteChildren: RootRouteChildren = {
   McpRoute: McpRoute,
   MemoryRoute: MemoryRoute,
   OperationsRoute: OperationsRoute,
+  OsintRoute: OsintRoute,
   PlaygroundRoute: PlaygroundRoute,
   ProfilesRoute: ProfilesRoute,
   ReserveRoute: ReserveRouteWithChildren,
@@ -3499,6 +3540,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMediaRoute: ApiMediaRoute,
   ApiMemoryRoute: ApiMemoryRouteWithChildren,
   ApiModelsRoute: ApiModelsRoute,
+  ApiOsintRoute: ApiOsintRoute,
   ApiPathsRoute: ApiPathsRoute,
   ApiPingRoute: ApiPingRoute,
   ApiPlaygroundAdminRoute: ApiPlaygroundAdminRoute,

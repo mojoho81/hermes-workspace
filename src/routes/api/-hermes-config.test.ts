@@ -3,6 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const gatewayCapabilities = vi.hoisted(() => ({
+  getCapabilities: vi.fn(() => ({ config: true })),
+}))
+
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: (_path: string) => (opts: any) => opts,
 }))
@@ -13,7 +17,7 @@ vi.mock('../../server/auth-middleware', () => ({
 
 vi.mock('../../server/gateway-capabilities', () => ({
   ensureGatewayProbed: vi.fn(),
-  getCapabilities: () => ({ config: true }),
+  getCapabilities: gatewayCapabilities.getCapabilities,
 }))
 
 vi.mock('../../server/local-provider-discovery', () => ({
@@ -35,6 +39,7 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-config-route-'))
   setEnv('HERMES_HOME', tmpHome)
   setEnv('CLAUDE_HOME', undefined)
+  gatewayCapabilities.getCapabilities.mockReturnValue({ config: true })
   vi.resetModules()
 })
 
@@ -132,10 +137,7 @@ describe('canonical /api/hermes-config route', () => {
   })
 
   it('PATCH returns 503 when the gateway capability is unavailable', async () => {
-    vi.doMock('../../server/gateway-capabilities', () => ({
-      ensureGatewayProbed: vi.fn(),
-      getCapabilities: () => ({ config: false }),
-    }))
+    gatewayCapabilities.getCapabilities.mockReturnValue({ config: false })
     const handlers = await loadHandlers('./hermes-config')
     const res = await handlers.PATCH({
       request: new Request('http://localhost/api/hermes-config', {
@@ -144,7 +146,6 @@ describe('canonical /api/hermes-config route', () => {
       }),
     })
     expect(res.status).toBe(503)
-    vi.doUnmock('../../server/gateway-capabilities')
   })
 })
 

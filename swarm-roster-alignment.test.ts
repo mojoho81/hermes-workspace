@@ -130,7 +130,10 @@ describe.skipIf(!swarmDeployed)('swarm roster alignment (VPS)', () => {
 
   it('no orphan worker wrappers missing from swarm.yaml', () => {
     const liveIds = new Set(workers.map((w) => w.id))
-    const orphanCandidates = readdirSync(wrapperDir).filter((name) => {
+    // The orphan contract already requires a same-named Hermes profile.
+    // Iterate that bounded set instead of reading every unrelated executable
+    // in ~/.local/bin, which made the suite depend on filesystem latency.
+    const orphanCandidates = readdirSync(profilesDir).filter((name) => {
       if (liveIds.has(name)) return false
       const p = join(wrapperDir, name)
       try {
@@ -139,7 +142,7 @@ describe.skipIf(!swarmDeployed)('swarm roster alignment (VPS)', () => {
         // A swarm-worker wrapper is a tiny script exec-ing hermes -p <name>
         // where a profile dir of the same name exists.
         return (
-          /hermes\s+-p\s+\S+/.test(body) &&
+          /hermes\s+-p\s+(?:"[^"\s]+"|'[^'\s]+'|[^\s"']+)/.test(body) &&
           body.length < 500 &&
           existsSync(join(profilesDir, name))
         )

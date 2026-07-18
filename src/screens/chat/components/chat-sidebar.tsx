@@ -586,6 +586,7 @@ function ChatSidebarComponent({
   const isTasksActive = pathname === '/tasks'
   const isConductorActive = pathname === '/conductor'
   const isOperationsActive = pathname === '/operations'
+  const isOsintActive = pathname === '/osint'
   const isSwarmActive = pathname === '/swarm' || pathname === '/swarm2'
   const echoStudioEnabled = useSettingsStore(
     (state) => state.settings.experimentalEchoStudio,
@@ -826,6 +827,13 @@ function ChatSidebarComponent({
       icon: CheckListIcon,
       label: 'Tasks',
       active: isTasksActive,
+    },
+    {
+      kind: 'link',
+      to: '/osint',
+      icon: Search01Icon,
+      label: 'OSINT',
+      active: isOsintActive,
     },
     {
       kind: 'link',
