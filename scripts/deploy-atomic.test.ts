@@ -48,7 +48,8 @@ function fixture(options: FixtureOptions = {}) {
   mkdirSync(scripts, { recursive: true })
   mkdirSync(join(runtime, 'runtime'), { recursive: true })
   mkdirSync(join(runtime, 'memory-handoffs'), { recursive: true })
-  mkdirSync(join(repo, 'node_modules'), { recursive: true })
+  mkdirSync(join(repo, 'node_modules', '.bin'), { recursive: true })
+  writeFileSync(join(repo, 'node_modules', 'runtime-sentinel'), 'preserve\n')
   mkdirSync(snapshot)
   mkdirSync(bin)
   symlinkSync(join(runtime, 'runtime'), join(repo, '.runtime'))
@@ -97,7 +98,13 @@ exit 0
   executable(
     join(bin, 'pnpm'),
     `#!/bin/sh
-if [ "$1" = "install" ]; then exit 0; fi
+if [ "$1" = "install" ]; then [ "$CI" = "true" ] && exit 0 || exit 92; fi
+exit 91
+`,
+  )
+  executable(
+    join(repo, 'node_modules', '.bin', 'vite'),
+    `#!/bin/sh
 out=""
 for arg in "$@"; do out="$arg"; done
 ${options.transientMutation ? `printf 'transient-source\\n' > '${join(repo, 'source.txt')}'` : ''}
@@ -206,6 +213,9 @@ function expectOldBuildRestored(repo: string, serviceState: string) {
     'old-build\n',
   )
   expect(readFileSync(serviceState, 'utf8')).toBe('active\n')
+  expect(readFileSync(join(repo, 'node_modules', 'runtime-sentinel'), 'utf8')).toBe(
+    'preserve\n',
+  )
   expect(transientDirs(repo)).toEqual([])
 }
 
@@ -250,6 +260,9 @@ describe('atomic Workspace deployment', () => {
     expect(readFileSync(join(repo, 'dist', 'server', 'server.js'), 'utf8')).toBe(
       'stable-source\n',
     )
+    expect(
+      readFileSync(join(repo, 'node_modules', 'runtime-sentinel'), 'utf8'),
+    ).toBe('preserve\n')
     expect(transientDirs(repo)).toEqual([])
   })
 

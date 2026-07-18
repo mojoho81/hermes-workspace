@@ -136,7 +136,7 @@ if [ -f "$REPO_ROOT/.env" ]; then
 else
   fail ".env missing — restore from backup before the service can start"
 fi
-run pnpm install --frozen-lockfile
+run env CI=true pnpm install --frozen-lockfile
 [ "$DRY_RUN" -eq 1 ] || ok "dependencies installed (frozen lockfile)"
 
 say "== 4/8 production build"
@@ -153,10 +153,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
   mkdir -p "$BUILD_SOURCE_DIR"
   git archive "$BUILD_COMMIT" | tar -x -C "$BUILD_SOURCE_DIR"
   cp "$REPO_ROOT/.env" "$BUILD_SOURCE_DIR/.env"
-  ln -s "$REPO_ROOT/node_modules" "$BUILD_SOURCE_DIR/node_modules"
   (
     cd "$BUILD_SOURCE_DIR"
-    pnpm exec vite build --outDir "$STAGE_DIR"
+    "$REPO_ROOT/node_modules/.bin/vite" build --outDir "$STAGE_DIR"
   )
   [ -f "$STAGE_DIR/server/server.js" ] || { fail "staged build output server/server.js missing"; exit 1; }
   if [ "$(git rev-parse HEAD)" != "$BUILD_COMMIT" ] \
