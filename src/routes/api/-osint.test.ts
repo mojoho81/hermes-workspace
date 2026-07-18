@@ -135,6 +135,43 @@ describe('/api/osint broker', () => {
     expect(mocks.execFile).not.toHaveBeenCalled()
   })
 
+  it('accepts the exact HTTPS origin behind a trusted HTTPS reverse-proxy hop', async () => {
+    succeed({ ok: true, detail: { case: { case_id: 'case-one' } } })
+    const route = await handlers()
+    const body = {
+      action: 'amendment-propose',
+      caseId: 'case-one',
+      changes: { max_rounds: 4 },
+      rationale: 'Bounded extension',
+    }
+    const request = (origin: string, forwardedProto: string) =>
+      new Request('http://workspace.example:3443/api/osint', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin,
+          'sec-fetch-site': 'same-origin',
+          'x-forwarded-proto': forwardedProto,
+        },
+        body: JSON.stringify(body),
+      })
+
+    const proxied = await route.POST({
+      request: request('https://workspace.example:3443', 'https'),
+    })
+    const wrongHost = await route.POST({
+      request: request('https://attacker.example:3443', 'https'),
+    })
+    const untrustedProto = await route.POST({
+      request: request('https://workspace.example:3443', 'http'),
+    })
+
+    expect(proxied.status).toBe(200)
+    expect(wrongHost.status).toBe(403)
+    expect(untrustedProto.status).toBe(403)
+    expect(mocks.execFile).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects cross-origin or out-of-schema mutation requests before process launch', async () => {
     succeed({ ok: true })
     const route = await handlers()

@@ -208,10 +208,17 @@ async function runBroker(
 }
 
 function sameOrigin(request: Request) {
-  const expected = new URL(request.url).origin
+  const requestUrl = new URL(request.url)
   const origin = request.headers.get('origin')
   const fetchSite = request.headers.get('sec-fetch-site')
-  return origin === expected && (fetchSite === null || fetchSite === 'same-origin')
+  const forwardedHttpsOrigin =
+    requestUrl.protocol === 'http:' && request.headers.get('x-forwarded-proto') === 'https'
+      ? `https://${requestUrl.host}`
+      : null
+  return (
+    (origin === requestUrl.origin || origin === forwardedHttpsOrigin) &&
+    (fetchSite === null || fetchSite === 'same-origin')
+  )
 }
 
 function canonicalChanges(changes: Record<string, unknown>) {
